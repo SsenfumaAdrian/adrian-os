@@ -1,3 +1,3 @@
 ﻿# ADRIAN Dart SDK Layer
 
-This directory will contain Dart runtime integration and ADRIAN application SDK components.
+This directory will host Dart runtime integration, standard libraries, and app framework bindings for ADRIAN OS.

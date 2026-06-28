@@ -1,3 +1,3 @@
 ﻿# Sentinel
 
-Sandboxing, policy, enforcement, auditing.
+Sandboxing, policy enforcement, auditing, and security controls.

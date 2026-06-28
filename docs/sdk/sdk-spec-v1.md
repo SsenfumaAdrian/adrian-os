@@ -1,11 +1,12 @@
 ﻿# ADRIAN OS SDK Specification v1
 
-Status: Draft
+Status: Foundational Draft
 
-## Topics
+## Scope
 - Dart runtime integration
-- App lifecycle
-- UI toolkit
-- Packaging
-- Permissions
-- Developer tools
+- native UI framework
+- application lifecycle model
+- package format
+- app signing
+- permissions
+- CLI and emulator strategy

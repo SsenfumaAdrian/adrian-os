@@ -1,3 +1,3 @@
 ﻿# Current
 
-Networking stack and policy-aware connectivity.
+Networking stack, connectivity primitives, and policy-aware transport services.

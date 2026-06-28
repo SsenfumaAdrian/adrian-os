@@ -1,3 +1,3 @@
 ﻿# Canvas
 
-Dart-native UI framework.
+Dart-native UI framework for ADRIAN OS.

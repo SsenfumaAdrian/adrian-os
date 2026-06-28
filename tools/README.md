@@ -1,3 +1,3 @@
 ﻿# Tools
 
-Build, test, automation, CI, and benchmarking.
+Build, CI, QA, benchmarking, and engineering automation.

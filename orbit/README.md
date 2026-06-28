@@ -1,3 +1,3 @@
 ﻿# Orbit
 
-Packaging, installation, and update system.
+Package management, installation, updates, rollback, and signing workflows.

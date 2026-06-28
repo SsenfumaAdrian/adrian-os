@@ -1,11 +1,14 @@
 ﻿# ADRIAN OS Liquid Glass Specification v1
 
-Status: Draft
+Status: Foundational Draft
 
-## Topics
-- Material system
-- Transparency model
-- Refraction and blur
-- Motion behavior
-- Accessibility fallbacks
-- Performance modes
+## Visual Direction
+A premium optical interface system based on translucency, depth, refraction, adaptive tinting, and physically inspired motion.
+
+## Requirements
+- real-time blur and backdrop sampling
+- layered composition
+- motion coherence
+- accessibility fallbacks
+- low-power rendering modes
+- shader-driven material behavior

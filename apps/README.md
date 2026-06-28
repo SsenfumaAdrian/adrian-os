@@ -1,3 +1,3 @@
 ﻿# Apps
 
-First-party ADRIAN OS applications.
+First-party ADRIAN OS applications and shell experiences.

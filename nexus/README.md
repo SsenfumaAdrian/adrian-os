@@ -1,3 +1,3 @@
 ﻿# Nexus
 
-Cloud integration, sync, trust, and fleet services.
+Cloud, sync, trust services, backup, and fleet coordination.

@@ -1,3 +1,3 @@
 ﻿# Flow
 
-Animation, motion, gesture, and timing systems.
+Animation, timing, gestures, and material motion engine.

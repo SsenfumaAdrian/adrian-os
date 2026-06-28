@@ -1,6 +1,6 @@
 ﻿[workspace]
 members = [
-    "axiom/kernel",
+    "axiom/kernel"
 ]
 
 resolver = "2"

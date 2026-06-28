@@ -1,4 +1,4 @@
-﻿# ADRIAN OS common ignores
+﻿# ADRIAN OS ignore policy
 
 # Rust
 target/
@@ -13,18 +13,20 @@ build/
 __pycache__/
 *.pyc
 .venv/
+venv/
 
-# IDE
+# Editors / IDEs
 .vscode/
 .idea/
 
-# OS files
+# OS metadata
 Thumbs.db
 Desktop.ini
 
 # Logs
 *.log
 
-# Temporary files
+# Temp
 *.tmp
 *.bak
+*.swp
