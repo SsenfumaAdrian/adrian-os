@@ -1,4 +1,6 @@
-﻿/// x86_64 architecture support scaffold for ADRIAN OS.
+﻿pub mod port_io;
+
+/// x86_64 architecture support scaffold for ADRIAN OS.
 
 /// Early architecture initialization sequence.
 pub fn early_arch_init() {
