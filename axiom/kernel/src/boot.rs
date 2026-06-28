@@ -48,7 +48,7 @@ pub struct BootContext {
 }
 
 impl BootContext {
-    pub const MAGIC: u64 = 0x4144_5249_414E_4F53; // "ADRIANOS" inspired marker
+    pub const MAGIC: u64 = 0x4144_5249_414E_4F53;
     pub const VERSION: u32 = 1;
 
     pub const fn empty() -> Self {
@@ -76,9 +76,4 @@ impl BootContext {
     pub const fn is_valid(&self) -> bool {
         self.header.magic == Self::MAGIC && self.header.version == Self::VERSION
     }
-}
-
-/// Placeholder boot entry used by future Halo -> Axiom integration.
-pub fn boot_entry(context: &BootContext) {
-    let _ = context;
 }

@@ -1,12 +1,14 @@
 ﻿use crate::boot::BootContext;
 
-/// Main early initialization sequence placeholder.
-///
-/// This defines the intended initialization order for Axiom.
+/// Legacy top-level init path used by current scaffolding.
 pub fn early_kernel_init() {
     let boot_context = BootContext::empty();
+    early_kernel_init_with_context(&boot_context);
+}
 
-    if !validate_boot_context(&boot_context) {
+/// Main early initialization sequence with explicit boot context.
+pub fn early_kernel_init_with_context(context: &BootContext) {
+    if !validate_boot_context(context) {
         crate::panic::halt_forever();
     }
 

@@ -3,6 +3,7 @@
 pub mod arch;
 pub mod boot;
 pub mod config;
+pub mod entry;
 pub mod error;
 pub mod init;
 pub mod ipc;
