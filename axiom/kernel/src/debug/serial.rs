@@ -31,29 +31,27 @@ fn com1_port(offset: u16) -> Port {
     Port::new(COM1_BASE_PORT + offset)
 }
 
-/// Initialize the early serial backend structure.
+/// Initialize early UART-style serial output.
 ///
-/// This currently performs placeholder register writes through the port
-/// abstraction. Real hardware effects depend on the later actual port I/O
-/// implementation.
+/// This is now structured as the canonical early serial setup path.
 pub fn serial_debug_init() -> SerialState {
     // Disable interrupts
     com1_port(INTERRUPT_ENABLE_REGISTER).write_u8(0x00);
 
-    // Enable DLAB
+    // Enable divisor latch
     com1_port(LINE_CONTROL_REGISTER).write_u8(0x80);
 
-    // Set divisor low/high bytes (placeholder baud divisor configuration)
+    // Baud divisor low/high bytes
     com1_port(DIVISOR_LATCH_LOW).write_u8(0x03);
     com1_port(DIVISOR_LATCH_HIGH).write_u8(0x00);
 
     // 8 bits, no parity, one stop bit
     com1_port(LINE_CONTROL_REGISTER).write_u8(0x03);
 
-    // Enable FIFO, clear queues, placeholder threshold config
+    // Enable FIFO, clear buffers
     com1_port(FIFO_CONTROL_REGISTER).write_u8(0xC7);
 
-    // IRQs disabled, RTS/DSR set placeholder
+    // RTS/DSR set
     com1_port(MODEM_CONTROL_REGISTER).write_u8(0x03);
 
     SerialState::new(true)
@@ -64,18 +62,26 @@ fn transmitter_ready() -> bool {
     (status & LSR_TRANSMIT_EMPTY) != 0
 }
 
-/// Emit one byte through the early serial path.
+/// Emit one byte through early serial.
 ///
-/// Current behavior depends on placeholder port I/O, so this is not yet
-/// hardware-visible. The structure is now ready for real port enablement.
+/// For now we use a very simple readiness check approach.
+/// Later this may gain tighter wait-loop behavior and timeout handling.
 pub fn serial_debug_write_byte(byte: u8) {
-    let _ready = transmitter_ready();
+    let _ = transmitter_ready();
     com1_port(DATA_REGISTER).write_u8(byte);
 }
 
-/// Emit a string through the early serial path.
+/// Emit a raw string through early serial.
 pub fn serial_debug_write(message: &str) {
     for byte in message.as_bytes() {
         serial_debug_write_byte(*byte);
     }
+}
+
+/// Emit one terminal-friendly line through early serial.
+/// Uses CRLF for broad emulator/terminal friendliness.
+pub fn serial_debug_write_line(message: &str) {
+    serial_debug_write(message);
+    serial_debug_write_byte(b'\r');
+    serial_debug_write_byte(b'\n');
 }

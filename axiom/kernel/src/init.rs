@@ -8,6 +8,7 @@ pub fn early_kernel_init() {
 
 /// Main early initialization sequence with explicit boot context.
 pub fn early_kernel_init_with_context(context: &BootContext) {
+    crate::debug::serial::serial_debug_init();
     crate::debug::debug_marker("AXIOM: ENTRY");
 
     if !validate_boot_context(context) {
