@@ -1,16 +1,21 @@
-﻿/// Panic and halt placeholders for ADRIAN OS early bring-up.
+﻿use core::panic::PanicInfo;
 
 /// Halt forever.
-/// In later stages this should become an architecture-aware halt path.
+/// In later stages this will become architecture-aware.
 pub fn halt_forever() -> ! {
-    loop {}
+    loop {
+        core::hint::spin_loop();
+    }
 }
 
-/// Placeholder panic path.
-/// Later work:
-/// - emit debug output
-/// - capture crash reason
-/// - route to architecture-specific halt instruction path
+/// Kernel panic handler for no_std environments.
+/// Early implementation intentionally does minimal work.
+#[panic_handler]
+fn panic(_info: &PanicInfo) -> ! {
+    halt_forever()
+}
+
+/// Placeholder explicit panic path for early code structure.
 pub fn panic_handler_placeholder() -> ! {
     halt_forever()
 }

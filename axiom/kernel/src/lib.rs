@@ -16,7 +16,7 @@ pub mod syscall;
 pub mod thread;
 
 /// Top-level kernel initialization entry point.
-/// This is still a scaffold, but now organized as a coherent crate.
+/// This remains a scaffold while bring-up proceeds.
 pub fn kernel_init() {
     init::early_kernel_init();
 }
