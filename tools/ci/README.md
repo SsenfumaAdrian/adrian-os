@@ -1,3 +1,8 @@
-﻿# CI Tooling
+﻿# ADRIAN OS CI
 
-Continuous integration workflows and validation strategy.
+This directory will contain:
+- formatting checks
+- lint checks
+- documentation validation
+- emulator boot smoke tests
+- package integrity validation

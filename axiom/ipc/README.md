@@ -1,3 +1,8 @@
 ﻿# Axiom IPC
 
-Capability-aware communication primitives including channels, events, and shared memory mechanisms.
+Planned responsibilities:
+- channels
+- shared memory
+- events
+- handle transfer
+- capability-aware messaging

@@ -1,3 +1,7 @@
 ﻿# Axiom Drivers
 
-Kernel-side driver framework boundaries, device object registration, DMA support, and MMIO abstractions.
+Planned responsibilities:
+- device object model
+- MMIO and DMA primitives
+- interrupt integration
+- userspace-driver support hooks

@@ -1,10 +1,9 @@
 ﻿# ADRIAN OS Code of Conduct
 
-We expect professional, respectful, technically rigorous collaboration.
+Professional, respectful, technically rigorous collaboration is expected.
 
 ## Principles
-- Respect contributors
-- Debate ideas, not people
-- Prioritize clarity
-- Report issues responsibly
-- Build with discipline and integrity
+- respect contributors
+- focus on ideas and evidence
+- communicate clearly
+- report issues responsibly

@@ -1,3 +1,7 @@
 ﻿# Axiom VFS
 
-Virtual filesystem primitives and namespace integration.
+Planned responsibilities:
+- namespace model
+- file handles
+- mount abstraction
+- broker-friendly filesystem access

@@ -1,3 +1,8 @@
 ﻿# Axiom Tests
 
-Kernel validation strategy including smoke tests, fuzzing plans, and emulated bring-up verification.
+Planned validation:
+- boot smoke tests
+- syscall tests
+- IPC tests
+- scheduler tests
+- memory safety and fault-path tests

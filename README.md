@@ -1,35 +1,34 @@
 ﻿# ADRIAN OS
 
-ADRIAN OS is an independent operating system ecosystem designed from first principles.
+ADRIAN OS is an independent operating system ecosystem built from first principles.
 
-## Vision
-Build a secure, scalable, sovereign computing platform capable of powering desktop, laptop, mobile, server, embedded, and cloud-connected systems.
-
-## Core Technology Direction
+## Platform Direction
 - Rust for systems programming
-- Dart for application and UI development
-- Python for tooling, AI workflows, testing, and automation
-- Hybrid modular kernel architecture
-- Capability-based zero-trust security model
+- Dart for applications and UI
+- Python for tooling, AI workflows, and automation
+- Hybrid modular kernel
+- Capability-based zero-trust security
 - Liquid Glass design language
-- Transactional update architecture
-- Native ADRIAN application ecosystem
+- Secure update and package trust model
 
-## Repository Domains
-- halo/      Boot and trust chain
-- axiom/     Kernel
-- pulse/     Service management
-- vault/     Cryptography and identity
-- sentinel/  Policy, sandboxing, enforcement
-- current/   Networking
-- prism/     Graphics and compositor
+## Initial Strategy
+- Desktop/laptop first
+- x86_64 UEFI first
+- Curated hardware support first
+- Secure architecture before broad ecosystem expansion
+
+## Repository Areas
+- halo/      boot and trust chain
+- axiom/     kernel and core primitives
+- pulse/     service manager
+- vault/     security, crypto, identity
+- sentinel/  policy and sandboxing
+- current/   networking
+- prism/     graphics and compositor
 - canvas/    UI framework
-- flow/      Motion and animation
-- orbit/     Package and update system
-- nexus/     Cloud, sync, and fleet services
-- sdk/       Developer platform
-- tools/     Build, CI, QA, automation
-- apps/      First-party applications
-
-## Current Status
-Foundation architecture and repository scaffolding phase.
+- flow/      animation and motion
+- orbit/     packaging and updates
+- nexus/     cloud and fleet services
+- sdk/       developer platform
+- tools/     build, ci, test, automation
+- apps/      first-party applications

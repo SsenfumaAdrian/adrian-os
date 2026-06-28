@@ -1,3 +1,7 @@
 ﻿# Axiom Security Hooks
 
-Kernel-level security enforcement points, capability checks, and audit emission boundaries.
+Planned responsibilities:
+- capability checks
+- syscall policy hooks
+- audit event emission
+- object access enforcement points

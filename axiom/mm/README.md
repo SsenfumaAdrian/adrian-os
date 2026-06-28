@@ -1,3 +1,7 @@
-﻿# Axiom MM
+﻿# Axiom Memory Management
 
-Physical and virtual memory management subsystem.
+Planned responsibilities:
+- physical memory management
+- virtual memory
+- kernel heap
+- mapping and protection controls

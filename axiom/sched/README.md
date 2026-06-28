@@ -1,3 +1,8 @@
 ﻿# Axiom Scheduler
 
-Thread scheduling, run queues, priorities, and CPU dispatch logic.
+Planned responsibilities:
+- thread scheduling
+- run queues
+- timers
+- CPU dispatch
+- priority handling
