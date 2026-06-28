@@ -1,10 +1,12 @@
 ﻿/// x86_64 architecture support scaffold for ADRIAN OS.
 
+/// Early architecture initialization sequence.
 pub fn early_arch_init() {
     early_cpu_init();
     early_descriptor_tables_init();
     early_interrupt_init();
     early_timer_init();
+    early_serial_init();
 }
 
 fn early_cpu_init() {
@@ -32,4 +34,10 @@ fn early_timer_init() {
     // Planned:
     // - bootstrap timer source
     // - scheduler tick hook
+}
+
+fn early_serial_init() {
+    // Planned:
+    // - initialize earliest serial debug path
+    // - prepare QEMU-visible bring-up diagnostics
 }
