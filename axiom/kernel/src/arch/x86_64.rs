@@ -39,7 +39,5 @@ fn early_timer_init() {
 }
 
 fn early_serial_init() {
-    // Planned:
-    // - initialize earliest serial debug path
-    // - prepare QEMU-visible bring-up diagnostics
+    let _ = crate::debug::serial::serial_debug_init();
 }

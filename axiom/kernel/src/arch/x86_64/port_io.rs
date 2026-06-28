@@ -1,8 +1,8 @@
 ﻿/// x86_64 port I/O abstraction scaffold.
 ///
 /// This module centralizes architecture-specific port access concepts.
-/// Actual hardware operations are intentionally placeholders for now
-/// until the unsafe implementation boundary is introduced and reviewed.
+/// Actual hardware operations remain conservative placeholders until
+/// explicit unsafe machine instruction integration is introduced.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Port {
