@@ -1,9 +1,28 @@
 ﻿/// Kernel security hooks scaffold.
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecurityLabel {
+    Kernel,
+    PlatformService,
+    SystemService,
+    Application,
+    DriverHost,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CapabilityRights {
+    pub bits: u64,
+}
+
+impl CapabilityRights {
+    pub const NONE: Self = Self { bits: 0 };
+}
+
 pub fn early_security_init() {
     // Planned:
-    // - object access checks
-    // - syscall policy hooks
-    // - capability validation integration
-    // - audit event integration
+    // - capability check foundations
+    // - syscall policy hook registration
+    // - object access enforcement integration
+    // - audit event stub integration
 }
