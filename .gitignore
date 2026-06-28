@@ -1,0 +1,30 @@
+﻿# ADRIAN OS common ignores
+
+# Rust
+target/
+Cargo.lock
+
+# Dart
+.dart_tool/
+.packages
+build/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.bak

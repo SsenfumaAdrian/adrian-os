@@ -1,0 +1,6 @@
+﻿[workspace]
+members = [
+    "axiom/kernel",
+]
+
+resolver = "2"
