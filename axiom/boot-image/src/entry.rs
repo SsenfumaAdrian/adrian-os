@@ -1,13 +1,15 @@
 ﻿/// Conceptual boot-image wrapper entry placeholder.
 ///
-/// Future conceptual role:
-/// 1. gain wrapper-side control
-/// 2. pass into bridge preparation stage
-/// 3. continue toward invocation layer
-/// 4. eventually support transition into Axiom kernel entry
+/// Current role:
+/// - compile-clean wrapper-side placeholder
+/// - marks where future boot artifact control would begin
 ///
-/// This is intentionally not yet a real low-level entry symbol.
-
+/// Future conceptual flow:
+/// 1. wrapper-side control begins here
+/// 2. synthetic or real bridge preparation follows
+/// 3. invocation layer transfers control into Axiom
+///
+/// This is not yet a real low-level boot entry symbol.
 pub fn wrapper_entry_status() -> &'static str {
-    "ADRIAN OS boot-image wrapper entry placeholder"
+    "ADRIAN OS boot-image wrapper entry placeholder (experiment-oriented)"
 }
