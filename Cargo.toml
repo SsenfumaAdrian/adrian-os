@@ -1,6 +1,7 @@
 ﻿[workspace]
 members = [
-    "axiom/kernel"
+    "axiom/kernel",
+    "axiom/boot-image"
 ]
 
 resolver = "2"
