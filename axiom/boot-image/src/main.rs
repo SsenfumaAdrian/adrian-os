@@ -1,4 +1,6 @@
-﻿fn main() {
+﻿mod entry;
+
+fn main() {
     // ADRIAN OS boot-image scaffold.
     //
     // This binary is currently a placeholder whose job is to mark the
@@ -8,9 +10,5 @@
     //
     // It is not yet a real bootable kernel image path.
 
-    println!("{}", boot_image_status_message());
-}
-
-fn boot_image_status_message() -> &'static str {
-    "ADRIAN OS boot-image scaffold: compile-valid placeholder"
+    println!("{}", entry::wrapper_entry_status());
 }
