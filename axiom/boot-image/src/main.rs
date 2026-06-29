@@ -15,5 +15,6 @@ fn main() {
 
     println!("{}", entry::wrapper_entry_status());
     println!("{}", bridge::bridge_status());
+    println!("{}", bridge::bridge_phase_label());
     println!("{}", invoke::invocation_status());
 }
