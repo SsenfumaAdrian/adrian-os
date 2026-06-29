@@ -17,4 +17,5 @@ fn main() {
     println!("{}", bridge::bridge_status());
     println!("{}", bridge::bridge_phase_label());
     println!("{}", invoke::invocation_status());
+    println!("{}", invoke::invocation_phase_label());
 }
