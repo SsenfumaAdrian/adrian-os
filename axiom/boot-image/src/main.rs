@@ -3,14 +3,15 @@ mod entry;
 mod invoke;
 
 fn main() {
-    // ADRIAN OS boot-image scaffold.
+    // ADRIAN OS FBE-1 wrapper-flow scaffold.
     //
-    // This binary is currently a placeholder whose job is to mark the
-    // future boundary between:
-    // - boot artifact concerns
-    // - Axiom kernel core logic
+    // Current conceptual sequence:
+    // WF-1 -> entry
+    // WF-2 -> bridge
+    // WF-3 -> invoke
     //
-    // It is not yet a real bootable kernel image path.
+    // Later stages should transition toward Axiom entry, marker emission,
+    // and deterministic halt under a runnable experiment path.
 
     println!("{}", entry::wrapper_entry_status());
     println!("{}", bridge::bridge_status());

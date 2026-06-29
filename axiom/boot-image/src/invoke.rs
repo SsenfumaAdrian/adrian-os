@@ -1,17 +1,11 @@
-﻿/// Conceptual wrapper-side Axiom invocation placeholder.
+﻿/// FBE-1 wrapper flow stage WF-3: invocation stage.
 ///
 /// Current role:
-/// - represent the future call boundary from wrapper-side logic
-/// - remain compile-clean and experiment-oriented
+/// - represent the wrapper-side transition toward Axiom kernel entry
+/// - remain conceptual and compile-clean
 ///
-/// Future conceptual role:
-/// 1. receive prepared BootContext-compatible handoff state
-/// 2. invoke Axiom internal kernel entry boundary
-/// 3. transfer control into kernel-owned initialization flow
-///
-/// Important:
-/// This is not yet a real invocation path and does not yet perform
-/// a true BootContext-based call into Axiom.
+/// Future role:
+/// - invoke Axiom internal entry boundary after bridge preparation
 pub fn invocation_status() -> &'static str {
-    "ADRIAN OS boot-image invocation placeholder (wrapper-side conceptual handoff)"
+    "FBE-1 WF-3: wrapper invocation placeholder"
 }

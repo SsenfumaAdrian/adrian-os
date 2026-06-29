@@ -1,15 +1,12 @@
-﻿/// Conceptual boot-image wrapper entry placeholder.
+﻿/// FBE-1 wrapper flow stage WF-1: entry stage.
 ///
 /// Current role:
-/// - compile-clean wrapper-side placeholder
-/// - marks where future boot artifact control would begin
+/// - represent wrapper-side experiment control entry
+/// - remain compile-clean and host-workflow-friendly
 ///
-/// Future conceptual flow:
-/// 1. wrapper-side control begins here
-/// 2. synthetic or real bridge preparation follows
-/// 3. invocation layer transfers control into Axiom
-///
-/// This is not yet a real low-level boot entry symbol.
+/// Future role:
+/// - become the first wrapper-side control boundary for experiment
+///   or artifact-oriented boot flow
 pub fn wrapper_entry_status() -> &'static str {
-    "ADRIAN OS boot-image wrapper entry placeholder (experiment-oriented)"
+    "FBE-1 WF-1: wrapper entry placeholder"
 }
