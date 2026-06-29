@@ -1,5 +1,6 @@
 ﻿mod bridge;
 mod entry;
+mod invoke;
 
 fn main() {
     // ADRIAN OS boot-image scaffold.
@@ -13,4 +14,5 @@ fn main() {
 
     println!("{}", entry::wrapper_entry_status());
     println!("{}", bridge::bridge_status());
+    println!("{}", invoke::invocation_status());
 }
