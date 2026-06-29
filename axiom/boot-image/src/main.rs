@@ -14,6 +14,7 @@ fn main() {
     // and deterministic halt under a runnable experiment path.
 
     println!("{}", entry::wrapper_entry_status());
+    println!("{}", entry::entry_phase_label());
     println!("{}", bridge::bridge_status());
     println!("{}", bridge::bridge_phase_label());
     println!("{}", invoke::invocation_status());
