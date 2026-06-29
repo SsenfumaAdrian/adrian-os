@@ -6,5 +6,13 @@
 3. wrapper invocation layer calls entry::kernel_entry(&BootContext)
 4. Axiom validates and continues internal initialization
 
-## Rule
-The wrapper should adapt and invoke. The kernel should validate and initialize.
+## Alignment Goal
+The boot-image path owns:
+- wrapper entry
+- bridge preparation
+- invocation
+
+Axiom owns:
+- validation
+- internal initialization
+- runtime progression

@@ -1,10 +1,12 @@
 ﻿/// Conceptual boot-image wrapper entry placeholder.
 ///
-/// This module exists to mark the future location where the boot-image
-/// path will evolve from a normal host-check-friendly scaffold into a
-/// true boot-artifact-facing entry boundary.
+/// Future conceptual role:
+/// 1. gain wrapper-side control
+/// 2. pass into bridge preparation stage
+/// 3. continue toward invocation layer
+/// 4. eventually support transition into Axiom kernel entry
 ///
-/// It is intentionally not yet a real low-level boot entry symbol.
+/// This is intentionally not yet a real low-level entry symbol.
 
 pub fn wrapper_entry_status() -> &'static str {
     "ADRIAN OS boot-image wrapper entry placeholder"

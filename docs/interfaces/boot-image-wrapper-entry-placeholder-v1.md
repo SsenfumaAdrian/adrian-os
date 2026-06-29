@@ -1,13 +1,11 @@
 ﻿# ADRIAN OS Boot Image Wrapper Entry Placeholder v1
 
 ## Purpose
-Document the first code-level placeholder for future boot-image entry ownership.
+Document the wrapper-side conceptual entry placeholder.
 
-## Current State
-- compile-clean
-- host-check friendly
-- not yet a real boot entry symbol
-- not yet target-specific
-
-## Intended Future Role
-This location is expected to evolve toward the wrapper-side entry boundary that eventually transitions into Axiom kernel entry flow.
+## Alignment
+This placeholder represents the future start of the wrapper-side path:
+- entry
+- bridge
+- invocation
+- kernel entry

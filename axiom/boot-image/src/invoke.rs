@@ -1,11 +1,15 @@
 ﻿/// Conceptual wrapper-side Axiom invocation placeholder.
 ///
-/// This module represents the future point where the boot-image path
-/// will invoke the Axiom kernel entry boundary after bridge preparation
-/// is complete.
+/// Future conceptual role:
+/// 1. receive prepared BootContext-compatible state from bridge layer
+/// 2. invoke Axiom internal entry boundary
+/// 3. transfer control into kernel-owned initialization flow
 ///
-/// It is intentionally compile-clean and not yet connected to a real
-/// BootContext handoff or low-level boot entry path.
+/// Intended eventual destination:
+/// xiom::entry::kernel_entry(&BootContext) conceptually.
+///
+/// This module is intentionally compile-clean and not yet connected to
+/// a real low-level boot path.
 
 pub fn invocation_status() -> &'static str {
     "ADRIAN OS boot-image invocation placeholder"
