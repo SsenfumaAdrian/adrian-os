@@ -1,4 +1,5 @@
-﻿mod entry;
+﻿mod bridge;
+mod entry;
 
 fn main() {
     // ADRIAN OS boot-image scaffold.
@@ -11,4 +12,5 @@ fn main() {
     // It is not yet a real bootable kernel image path.
 
     println!("{}", entry::wrapper_entry_status());
+    println!("{}", bridge::bridge_status());
 }
