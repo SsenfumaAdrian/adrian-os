@@ -1,11 +1,16 @@
 ﻿fn main() {
-    // Placeholder boot wrapper entry for ADRIAN OS.
-    // This is not yet a real bootable kernel image path.
-    // It exists to scaffold the future wrapper/binary structure.
+    // ADRIAN OS boot-image scaffold.
+    //
+    // This binary is currently a placeholder whose job is to mark the
+    // future boundary between:
+    // - boot artifact concerns
+    // - Axiom kernel core logic
+    //
+    // It is not yet a real bootable kernel image path.
 
-    let _ = adrian_kernel_reference();
+    println!("{}", boot_image_status_message());
 }
 
-fn adrian_kernel_reference() -> &'static str {
-    "ADRIAN OS boot-image scaffold"
+fn boot_image_status_message() -> &'static str {
+    "ADRIAN OS boot-image scaffold: compile-valid placeholder"
 }

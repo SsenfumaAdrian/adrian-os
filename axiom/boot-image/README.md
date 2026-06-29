@@ -1,12 +1,27 @@
 ﻿# Axiom Boot Image
 
-This crate is the first scaffold for the future bootable wrapper/image path of ADRIAN OS.
+The Axiom Boot Image crate is the future wrapper and artifact path for bootable ADRIAN OS kernel experiments.
 
 ## Purpose
-- separate boot artifact concerns from kernel core logic
-- prepare future external entry strategy
-- prepare future linker and target build path
-- support eventual QEMU boot experiments
+This crate exists to separate:
+- kernel core logic
+from
+- boot artifact concerns
+
+## Intended Responsibilities
+- future external entry symbol ownership
+- future target-specific build evolution
+- future linker integration
+- future boot artifact packaging
+- future QEMU boot experiment support
+- future Halo handoff experiment alignment
+
+## Non-Responsibilities
+This crate should not:
+- become a second kernel
+- duplicate Axiom subsystem logic
+- absorb unrelated runtime internals
+- replace Halo as a trust-launch system
 
 ## Current State
-Scaffold only. Not yet a real bootable artifact.
+This crate is still a scaffold and not yet a true bootable kernel artifact.

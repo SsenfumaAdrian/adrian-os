@@ -1,9 +1,15 @@
 ﻿# Axiom Boot Image TODO v1
 
-## Next Steps
-- define real external entry strategy
-- determine binary vs no_std wrapper evolution
-- add target planning
-- add linker planning
-- connect wrapper to Axiom entry path
-- define QEMU boot experiment workflow
+## Priority Next Steps
+- refine wrapper responsibilities
+- define future external entry strategy
+- define target/build strategy
+- define linker ownership and staging
+- define boot experiment packaging path
+- define future handoff into entry::kernel_entry
+
+## Medium-Term Steps
+- evolve toward no_std boot artifact path if required
+- integrate linker planning
+- integrate emulator-run workflow
+- define boot success criteria for first visible serial output
