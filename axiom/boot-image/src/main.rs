@@ -29,6 +29,7 @@ fn main() {
 
     println!("{}", handoff::handoff_status());
     println!("{}", synthetic_handoff.status_label);
+    println!("{}", handoff::handoff_summary(&synthetic_handoff));
     println!("{}", handoff::handoff_transition_relation());
 
     println!("{}", flow::stage_label(flow::WrapperStage::Invoke));

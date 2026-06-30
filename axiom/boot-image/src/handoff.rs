@@ -11,7 +11,7 @@
 /// - not a replacement for final BootContext semantics
 ///
 /// Coordination meaning:
-/// - this handoff is now explicitly aligned with MRT-1
+/// - this handoff is explicitly aligned with MRT-1
 /// - it participates in future transition-boundary refinement
 /// - it exists to support future marker-proof-oriented boundary crossing
 
@@ -42,4 +42,9 @@ pub fn handoff_status() -> &'static str {
 
 pub fn handoff_transition_relation() -> &'static str {
     "handoff-to-transition: MRT-1 synthetic handoff supports future marker-proof-oriented boundary refinement"
+}
+
+pub fn handoff_summary(handoff: &SyntheticHandoff) -> &'static str {
+    let _ = handoff;
+    "handoff-summary: x86_64 | experiment-mode=true | marker-path-intent=true"
 }
