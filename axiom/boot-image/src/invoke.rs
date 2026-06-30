@@ -1,12 +1,12 @@
 ﻿/// FBE-1 wrapper flow stage WF-3: invocation stage.
 ///
 /// This module models the concept of wrapper-side transition toward
-/// Axiom kernel entry without yet performing a real low-level call.
+/// Axiom kernel entry after synthetic handoff preparation.
 ///
 /// Important:
-/// - this is still conceptual and experiment-oriented
+/// - this remains conceptual and experiment-oriented
 /// - it does not yet invoke real Axiom kernel entry
-/// - it exists to preserve staged handoff structure
+/// - it exists to preserve staged handoff structure and future direction
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InvocationPhase {
@@ -29,4 +29,8 @@ pub fn invocation_phase_label() -> &'static str {
         InvocationPhase::ExperimentReady => "invocation-phase: experiment-ready",
         InvocationPhase::FutureAxiomEntryCall => "invocation-phase: future-axiom-entry-call",
     }
+}
+
+pub fn invocation_handoff_relation() -> &'static str {
+    "handoff-to-invocation: future wrapper-side handoff consumer"
 }

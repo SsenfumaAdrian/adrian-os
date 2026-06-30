@@ -34,4 +34,5 @@ fn main() {
     println!("{}", flow::stage_label(flow::WrapperStage::Invoke));
     println!("{}", invoke::invocation_status());
     println!("{}", invoke::invocation_phase_label());
+    println!("{}", invoke::invocation_handoff_relation());
 }
