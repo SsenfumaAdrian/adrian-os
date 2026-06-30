@@ -26,6 +26,7 @@ fn main() {
     println!("{}", flow::stage_label(flow::WrapperStage::Bridge));
     println!("{}", bridge::bridge_status());
     println!("{}", bridge::bridge_phase_label());
+    println!("{}", bridge::bridge_handoff_relation());
 
     println!("{}", handoff::handoff_status());
     println!("{}", synthetic_handoff.status_label);
