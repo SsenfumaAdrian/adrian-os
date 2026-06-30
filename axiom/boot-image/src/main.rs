@@ -1,4 +1,5 @@
 ﻿mod bridge;
+mod candidate;
 mod entry;
 mod flow;
 mod handoff;
@@ -20,6 +21,9 @@ fn main() {
 
     println!("{}", flow::wrapper_flow_summary());
     println!("{}", flow::wrapper_semantic_chain_summary());
+
+    println!("{}", candidate::candidate_status());
+    println!("{}", candidate::candidate_label());
 
     println!("{}", flow::stage_label(flow::WrapperStage::Entry));
     println!("{}", entry::wrapper_entry_status());
