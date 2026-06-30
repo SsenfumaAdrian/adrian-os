@@ -8,6 +8,11 @@
 /// - this is not production handoff logic
 /// - future production-consistent semantics remain aligned with Halo
 ///   and Axiom BootContext expectations
+///
+/// FMH-1 alignment:
+/// - this bridge now aligns conceptually with the current synthetic
+///   handoff summary model
+/// - it remains a preparation stage, not an authoritative handoff source
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SyntheticBridgePhase {
@@ -34,4 +39,8 @@ pub fn bridge_phase_label() -> &'static str {
 
 pub fn bridge_handoff_relation() -> &'static str {
     "bridge-to-handoff: synthetic wrapper-side preparation intent"
+}
+
+pub fn bridge_summary_relation() -> &'static str {
+    "bridge-to-summary: bridge aligns with the active FMH-1 synthetic handoff summary model"
 }

@@ -26,6 +26,7 @@ fn main() {
     println!("{}", bridge::bridge_status());
     println!("{}", bridge::bridge_phase_label());
     println!("{}", bridge::bridge_handoff_relation());
+    println!("{}", bridge::bridge_summary_relation());
 
     println!("{}", handoff::handoff_status());
     println!("{}", synthetic_handoff.status_label);
