@@ -7,6 +7,10 @@
 /// - this remains conceptual and experiment-oriented
 /// - it does not yet invoke real Axiom kernel entry
 /// - it exists to preserve staged handoff structure and future direction
+///
+/// FMH-1 alignment:
+/// - invocation is the future consumer of the current synthetic handoff summary
+/// - invocation remains temporary and wrapper-owned at this stage
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InvocationPhase {
@@ -33,4 +37,8 @@ pub fn invocation_phase_label() -> &'static str {
 
 pub fn invocation_handoff_relation() -> &'static str {
     "handoff-to-invocation: future wrapper-side handoff consumer"
+}
+
+pub fn invocation_summary_relation() -> &'static str {
+    "invocation-to-summary: invocation is the future consumer of the active FMH-1 synthetic handoff summary"
 }
