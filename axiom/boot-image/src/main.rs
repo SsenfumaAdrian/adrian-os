@@ -3,6 +3,7 @@ mod entry;
 mod flow;
 mod handoff;
 mod invoke;
+mod transition;
 
 fn main() {
     // ADRIAN OS FBE-1 wrapper-flow scaffold.
@@ -36,4 +37,7 @@ fn main() {
     println!("{}", invoke::invocation_status());
     println!("{}", invoke::invocation_phase_label());
     println!("{}", invoke::invocation_handoff_relation());
+
+    println!("{}", transition::transition_status());
+    println!("{}", transition::transition_boundary_label());
 }
