@@ -1,10 +1,9 @@
 ﻿//! ADRIAN OS boot-image wrapper: placeholder binary entry.
 //!
 //! Compile-clean placeholder surfacing the wrapper-side conceptual flow,
-//! the FMH-1 summary-oriented cohesion, and the structured MRT-1
-//! transition candidate. It does not produce a bootable artifact and
-//! does not call into Axiom. The real no_std boot artifact and the real
-//! wrapper -> Axiom handoff are deliberately later steps.
+//! the FMH-1 summary cohesion, the structured MRT-1 candidate, and now
+//! a synthetic artifact-shaped BootContext. It does not produce a
+//! bootable artifact and does not call into Axiom.
 
 mod entry;
 mod bridge;
@@ -23,6 +22,18 @@ fn main() {
     // FBE-1 / MRT-1 framing.
     println!("FBE-1 wrapper flow: entry -> bridge -> invoke");
     println!("FBE-1 semantic chain: entry -> bridge -> synthetic handoff -> invoke -> future Axiom entry");
+
+    // Synthetic BootContext (Minimal v1) constructed on the wrapper side.
+    let boot_context = bridge::SyntheticBootContext::fbe1_default();
+    println!("{}", bridge::bridge_context_status(&boot_context));
+    println!(
+        "boot-context: version={} arch={} mem_map={} serial={} experiment={}",
+        boot_context.version,
+        boot_context.arch_label,
+        boot_context.memory_map_present,
+        boot_context.serial_available,
+        boot_context.experiment_mode
+    );
 
     // Synthetic handoff model (FMH-1).
     let handoff_model = handoff::SyntheticHandoff::fbe1_default();
@@ -46,5 +57,12 @@ fn main() {
         "candidate-gate: ready_for_real_crossing_gate={} experiment_only={}",
         cand.ready_for_real_crossing_gate(),
         cand.is_experiment_only()
+    );
+
+    // Cross-check: synthetic BootContext well-formedness vs candidate gate.
+    println!(
+        "precursor-check: boot_context_well_formed={} crossing_gate_open={} (still experiment-only, no real crossing)",
+        boot_context.is_well_formed(),
+        cand.ready_for_real_crossing_gate()
     );
 }
