@@ -1,9 +1,11 @@
 ﻿//! ADRIAN OS boot-image wrapper: placeholder binary entry.
 //!
-//! Compile-clean placeholder surfacing the wrapper-side conceptual flow,
-//! the FMH-1 summary cohesion, the structured MRT-1 candidate, the
-//! synthetic BootContext, and now the FIRST simulated boundary crossing.
-//! No real Axiom code runs; no bootable artifact is produced.
+//! Compile-clean placeholder. This file calls ONLY functions that exist
+//! in the current module files. It surfaces the wrapper-side conceptual
+//! flow, the synthetic BootContext, the synthetic handoff, the
+//! transition boundary, the MRT-1 candidate, and the first simulated
+//! boundary crossing. No real Axiom code runs; no bootable artifact is
+//! produced.
 
 mod entry;
 mod bridge;
@@ -14,16 +16,12 @@ mod transition;
 mod candidate;
 
 fn main() {
-    // Wrapper-side conceptual flow (WF-1 .. WF-3).
-    println!("{}", entry::entry_status());
+    // --- Wrapper-side entry (WF-1) ---
+    println!("{}", entry::wrapper_entry_status());
+    println!("{}", entry::entry_phase_label());
+
+    // --- Bridge (WF-2) + synthetic BootContext (Minimal v1) ---
     println!("{}", bridge::bridge_status());
-    println!("{}", invoke::invoke_status());
-
-    // FBE-1 / MRT-1 framing.
-    println!("FBE-1 wrapper flow: entry -> bridge -> invoke");
-    println!("FBE-1 semantic chain: entry -> bridge -> synthetic handoff -> invoke -> future Axiom entry");
-
-    // Synthetic BootContext (Minimal v1) constructed on the wrapper side.
     let boot_context = bridge::SyntheticBootContext::fbe1_default();
     println!("{}", bridge::bridge_context_status(&boot_context));
     println!(
@@ -35,21 +33,27 @@ fn main() {
         boot_context.experiment_mode
     );
 
-    // Synthetic handoff model (FMH-1).
+    // --- Invoke (WF-3) ---
+    println!("{}", invoke::invoke_status());
+
+    // --- FBE-1 / flow framing ---
+    println!("{}", flow::wrapper_flow_summary());
+    println!("{}", flow::wrapper_semantic_chain_summary());
+    println!("{}", flow::mrt1_coordination_summary());
+
+    // --- Synthetic handoff model (FMH-1) ---
     let handoff_model = handoff::SyntheticHandoff::fbe1_default();
     println!("{}", handoff::handoff_status());
     println!("{}", handoff::handoff_summary(&handoff_model));
     println!("{}", handoff::handoff_transition_relation());
 
-    // Transition boundary (MRT-1) + FMH-1 summary alignment.
+    // --- Transition boundary (MRT-1) ---
     println!("{}", transition::transition_status());
-    println!("{}", transition::transition_relation());
-    println!("{}", transition::transition_phase());
-    println!("{}", transition::transition_marker_proof_intent());
-    println!("{}", transition::transition_to_summary());
-    println!("{}", transition::transition_summary_cohesion());
+    println!("{}", transition::transition_boundary_label());
+    println!("{}", transition::transition_candidate_phase_label());
+    println!("{}", transition::transition_marker_proof_relation());
 
-    // Structured MRT-1 transition candidate (post-cohesion).
+    // --- Structured MRT-1 transition candidate ---
     let cand = candidate::TransitionCandidate::mrt1_current();
     println!("{}", candidate::candidate_status());
     println!("{}", candidate::candidate_summary(&cand));
@@ -59,7 +63,7 @@ fn main() {
         cand.is_experiment_only()
     );
 
-    // FIRST simulated boundary crossing (same-crate stub target).
+    // --- First simulated boundary crossing (same-crate stub target) ---
     let outcome = invoke::perform_simulated_crossing(&boot_context);
     println!("{}", invoke::crossing_status(&outcome));
     println!(
@@ -68,12 +72,5 @@ fn main() {
         outcome.marker_count,
         outcome.halt_reached,
         outcome.simulated
-    );
-
-    // Invariant restatement: still experiment-only, no real Axiom call.
-    println!(
-        "invariants: real_axiom_call={} real_boot_context={} (both MUST be false in simulated crossing)",
-        cand.real_axiom_call,
-        cand.real_boot_context
     );
 }
