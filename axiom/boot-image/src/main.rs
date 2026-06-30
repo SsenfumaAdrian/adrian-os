@@ -1,9 +1,9 @@
 ﻿//! ADRIAN OS boot-image wrapper: placeholder binary entry.
 //!
 //! Compile-clean placeholder surfacing the wrapper-side conceptual flow,
-//! the FMH-1 summary cohesion, the structured MRT-1 candidate, and now
-//! a synthetic artifact-shaped BootContext. It does not produce a
-//! bootable artifact and does not call into Axiom.
+//! the FMH-1 summary cohesion, the structured MRT-1 candidate, the
+//! synthetic BootContext, and now the FIRST simulated boundary crossing.
+//! No real Axiom code runs; no bootable artifact is produced.
 
 mod entry;
 mod bridge;
@@ -59,10 +59,21 @@ fn main() {
         cand.is_experiment_only()
     );
 
-    // Cross-check: synthetic BootContext well-formedness vs candidate gate.
+    // FIRST simulated boundary crossing (same-crate stub target).
+    let outcome = invoke::perform_simulated_crossing(&boot_context);
+    println!("{}", invoke::crossing_status(&outcome));
     println!(
-        "precursor-check: boot_context_well_formed={} crossing_gate_open={} (still experiment-only, no real crossing)",
-        boot_context.is_well_formed(),
-        cand.ready_for_real_crossing_gate()
+        "crossing-outcome: entry_reached={} marker_count={} halt_reached={} simulated={}",
+        outcome.entry_reached,
+        outcome.marker_count,
+        outcome.halt_reached,
+        outcome.simulated
+    );
+
+    // Invariant restatement: still experiment-only, no real Axiom call.
+    println!(
+        "invariants: real_axiom_call={} real_boot_context={} (both MUST be false in simulated crossing)",
+        cand.real_axiom_call,
+        cand.real_boot_context
     );
 }
