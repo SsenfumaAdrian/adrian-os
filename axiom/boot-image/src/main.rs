@@ -12,12 +12,13 @@ fn main() {
     // WF-2 -> bridge
     // WF-3 -> invoke
     //
-    // Later stages should transition toward Axiom entry, marker emission,
-    // and deterministic halt under a runnable experiment path.
+    // Broader semantic chain:
+    // entry -> bridge -> synthetic handoff -> invoke -> future Axiom entry
 
     let synthetic_handoff = handoff::SyntheticHandoff::fbe1_default();
 
     println!("{}", flow::wrapper_flow_summary());
+    println!("{}", flow::wrapper_semantic_chain_summary());
 
     println!("{}", flow::stage_label(flow::WrapperStage::Entry));
     println!("{}", entry::wrapper_entry_status());

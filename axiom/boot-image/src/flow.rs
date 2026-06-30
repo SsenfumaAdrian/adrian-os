@@ -6,6 +6,9 @@
 /// - bridge
 /// - invoke
 ///
+/// It also describes the broader semantic chain:
+/// entry -> bridge -> synthetic handoff -> invoke -> future Axiom entry
+///
 /// It does not yet perform real runtime handoff behavior.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,4 +28,8 @@ pub fn stage_label(stage: WrapperStage) -> &'static str {
 
 pub fn wrapper_flow_summary() -> &'static str {
     "FBE-1 wrapper flow: entry -> bridge -> invoke"
+}
+
+pub fn wrapper_semantic_chain_summary() -> &'static str {
+    "FBE-1 semantic chain: entry -> bridge -> synthetic handoff -> invoke -> future Axiom entry"
 }
