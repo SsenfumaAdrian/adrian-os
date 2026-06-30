@@ -8,19 +8,12 @@ mod transition;
 
 fn main() {
     // ADRIAN OS FBE-1 wrapper-flow scaffold.
-    //
-    // Current conceptual sequence:
-    // WF-1 -> entry
-    // WF-2 -> bridge
-    // WF-3 -> invoke
-    //
-    // Broader semantic chain:
-    // entry -> bridge -> synthetic handoff -> invoke -> future Axiom entry
 
     let synthetic_handoff = handoff::SyntheticHandoff::fbe1_default();
 
     println!("{}", flow::wrapper_flow_summary());
     println!("{}", flow::wrapper_semantic_chain_summary());
+    println!("{}", flow::mrt1_coordination_summary());
 
     println!("{}", candidate::candidate_status());
     println!("{}", candidate::candidate_label());

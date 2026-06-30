@@ -33,3 +33,7 @@ pub fn wrapper_flow_summary() -> &'static str {
 pub fn wrapper_semantic_chain_summary() -> &'static str {
     "FBE-1 semantic chain: entry -> bridge -> synthetic handoff -> invoke -> future Axiom entry"
 }
+
+pub fn mrt1_coordination_summary() -> &'static str {
+    "MRT-1 coordination: wrapper flow -> synthetic handoff -> transition boundary -> future Axiom marker proof"
+}
