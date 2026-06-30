@@ -37,4 +37,6 @@ fn main() {
 
     println!("{}", transition::transition_status());
     println!("{}", transition::transition_boundary_label());
+    println!("{}", transition::transition_candidate_phase_label());
+    println!("{}", transition::transition_marker_proof_relation());
 }
