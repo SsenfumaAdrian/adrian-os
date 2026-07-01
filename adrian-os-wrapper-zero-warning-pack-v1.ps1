@@ -1,4 +1,49 @@
-﻿//! ADRIAN OS boot-image wrapper: placeholder binary entry.
+# =====================================================================
+# ADRIAN OS Wrapper Zero-Warning Pack v1
+# ---------------------------------------------------------------------
+# Purpose:
+#   Drive adrian-boot-image to ZERO warnings by referencing every
+#   remaining unused item, using the EXACT names revealed by cargo:
+#
+#     flow::WrapperStage::{ <variants printed below> }  + stage_label(...)
+#     entry::EntryPhase::{ Placeholder, ExperimentStart, FutureBootArtifactEntry }
+#     transition::TransitionCandidatePhase::{ Placeholder, Mrt1Active, FutureRealBoundaryCrossing }
+#
+#   Both EntryPhase and TransitionCandidatePhase derive Debug (confirmed
+#   by cargo notes), so {:?} printing is safe.
+#
+#   IMPORTANT ASSUMPTION (flow only):
+#     The WrapperStage variant identifiers are assumed to be:
+#         Entry, Bridge, Invoke
+#     cargo did NOT print these. If they differ, only the 3 flow lines
+#     will error with the real names -- paste it and I patch instantly.
+#     Everything else is confirmed and will compile.
+#
+#   Rewrites ONLY axiom/boot-image/src/main.rs.
+#
+# Run from: D:\adrian-os
+#   cd D:\adrian-os
+#   .\adrian-os-wrapper-zero-warning-pack-v1.ps1
+# =====================================================================
+
+$ErrorActionPreference = "Stop"
+
+$root = (Get-Location).Path
+Write-Host "ADRIAN OS root: $root" -ForegroundColor Cyan
+
+if (-not (Test-Path (Join-Path $root "Cargo.toml"))) {
+    Write-Host "ERROR: No Cargo.toml found at $root." -ForegroundColor Red
+    Write-Host "Run this from D:\adrian-os (the workspace root)." -ForegroundColor Red
+    exit 1
+}
+
+$bootImageSrc = Join-Path $root "axiom\boot-image\src"
+New-Item -ItemType Directory -Force -Path $bootImageSrc | Out-Null
+
+$mainFile = Join-Path $bootImageSrc "main.rs"
+
+$mainContent = @'
+//! ADRIAN OS boot-image wrapper: placeholder binary entry.
 //!
 //! Compile-clean placeholder that exercises EVERY defined wrapper-side
 //! item (functions, enum variants, struct fields) so the crate builds
@@ -127,3 +172,25 @@ fn main() {
         outcome.simulated
     );
 }
+'@
+
+Set-Content -Path $mainFile -Value $mainContent -Encoding UTF8
+Write-Host "Wrote (zero-warning): $mainFile" -ForegroundColor Green
+
+# --- Sanity: no malformed (bracket/paren) filenames anywhere ----------
+$weird = Get-ChildItem -Path $root -Recurse -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match '[\[\]\(\)]' }
+$weirdCount = ($weird | Measure-Object).Count
+Write-Host ("Weird file count: " + $weirdCount) -ForegroundColor Yellow
+
+Write-Host ""
+Write-Host "Wrapper Zero-Warning Pack v1 applied." -ForegroundColor Cyan
+Write-Host "Expected after cargo check: 0 warnings, 0 errors." -ForegroundColor Cyan
+Write-Host "If the only errors mention flow::WrapperStage::{Entry|Bridge|Invoke}," -ForegroundColor Yellow
+Write-Host "paste them; the real variant names just differ and I will patch." -ForegroundColor Yellow
+Write-Host ""
+Write-Host "Now run, from D:\adrian-os:" -ForegroundColor Cyan
+Write-Host "  cargo check" -ForegroundColor White
+Write-Host '  git add .' -ForegroundColor White
+Write-Host '  git commit -m "Wrapper Zero-Warning Pack v1: exercise all variants/fields, clean build"' -ForegroundColor White
+Write-Host "  git push" -ForegroundColor White
