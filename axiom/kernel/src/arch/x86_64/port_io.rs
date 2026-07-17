@@ -1,4 +1,5 @@
-﻿use core::arch::asm;
+﻿#[cfg(not(feature = "std"))]
+use core::arch::asm;
 
 /// x86_64 port I/O abstraction.
 ///
@@ -24,6 +25,13 @@ impl Port {
         self.address
     }
 
+}
+
+/// Bare-metal port access: real, privileged in/out instructions.
+/// This is the only path used on the real target; it is what makes
+/// this module architecture-specific and unsafe in the first place.
+#[cfg(not(feature = "std"))]
+impl Port {
     /// Read one byte from the I/O port.
     ///
     /// Safety rationale:
@@ -57,4 +65,21 @@ impl Port {
             );
         }
     }
+}
+
+/// Hosted port access: `in`/`out` are ring-0-only instructions and will
+/// fault if a userspace process executes them, so hosted builds (dev
+/// loop, tests) never touch real ports. Reads/writes become inert.
+///
+/// Visible serial output for hosted builds is handled one layer up, in
+/// `debug::serial`, which knows which writes are actual message bytes
+/// versus UART configuration register writes — a distinction this
+/// generic port abstraction intentionally doesn't know about.
+#[cfg(feature = "std")]
+impl Port {
+    pub fn read_u8(&self) -> u8 {
+        0
+    }
+
+    pub fn write_u8(&self, _value: u8) {}
 }

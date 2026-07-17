@@ -69,6 +69,18 @@ fn transmitter_ready() -> bool {
 pub fn serial_debug_write_byte(byte: u8) {
     let _ = transmitter_ready();
     com1_port(DATA_REGISTER).write_u8(byte);
+    #[cfg(feature = "std")]
+    host_echo_byte(byte);
+}
+
+/// Hosted-only: there's no real UART to observe, so mirror actual
+/// message bytes to stdout as they would have gone out over COM1.
+/// Deliberately separate from `serial_debug_init`'s register writes,
+/// which go straight through `Port` and are never echoed here.
+#[cfg(feature = "std")]
+fn host_echo_byte(byte: u8) {
+    use std::io::Write;
+    let _ = std::io::stdout().write_all(&[byte]);
 }
 
 /// Emit a raw string through early serial.

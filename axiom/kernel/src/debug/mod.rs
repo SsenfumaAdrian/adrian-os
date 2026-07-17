@@ -7,7 +7,7 @@
 /// Future behavior:
 /// - may route through backend selection or structured logging path
 pub fn debug_marker(message: &str) {
-    serial::serial_debug_write(message);
+    serial::serial_debug_write_line(message);
 }
 
 /// Emit a fixed panic marker.
@@ -17,5 +17,5 @@ pub fn debug_marker(message: &str) {
 /// Future behavior:
 /// - may use panic-safe minimal backend path
 pub fn panic_marker(message: &str) {
-    serial::serial_debug_write(message);
+    serial::serial_debug_write_line(message);
 }

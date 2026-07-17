@@ -1,129 +1,45 @@
-﻿//! ADRIAN OS boot-image wrapper: placeholder binary entry.
+//! ADRIAN OS boot-image: host dev-loop wrapper.
 //!
-//! Compile-clean placeholder that exercises EVERY defined wrapper-side
-//! item (functions, enum variants, struct fields) so the crate builds
-//! with zero warnings. No real Axiom code runs; no bootable artifact is
-//! produced.
+//! Constructs a real `BootContext` and crosses into the real Axiom
+//! kernel entry point (`adrian_kernel::entry::kernel_entry`). There is
+//! no bootloader (Halo) and no bootable artifact yet, so this runs as
+//! an ordinary hosted program — that's what lets the wrapper -> kernel
+//! call path get built and exercised before real firmware and a real
+//! bare-metal target exist.
 
-mod entry;
-mod bridge;
-mod invoke;
-mod flow;
-mod handoff;
-mod transition;
-mod candidate;
+mod boot_context;
 
-/// Reference every EntryPhase variant so none is reported as
-/// never-constructed. Returns a label for each (Debug-derived).
-fn demo_entry_phases() {
-    let phases = [
-        entry::EntryPhase::Placeholder,
-        entry::EntryPhase::ExperimentStart,
-        entry::EntryPhase::FutureBootArtifactEntry,
-    ];
-    for p in phases.iter() {
-        println!("entry-phase(variant): {:?}", p);
-    }
-}
-
-/// Reference every TransitionCandidatePhase variant so none is reported
-/// as never-constructed.
-fn demo_transition_phases() {
-    let phases = [
-        transition::TransitionCandidatePhase::Placeholder,
-        transition::TransitionCandidatePhase::Mrt1Active,
-        transition::TransitionCandidatePhase::FutureRealBoundaryCrossing,
-    ];
-    for p in phases.iter() {
-        println!("transition-phase(variant): {:?}", p);
-    }
-}
-
-/// Reference every WrapperStage variant via stage_label so neither the
-/// enum nor the function is reported as unused.
-fn demo_wrapper_stages() {
-    let stages = [
-        flow::WrapperStage::Entry,
-        flow::WrapperStage::Bridge,
-        flow::WrapperStage::Invoke,
-    ];
-    for s in stages.iter() {
-        // stage_label takes WrapperStage by value; copy out of the ref.
-        println!("stage-label: {}", flow::stage_label(*s));
-    }
-}
+use adrian_kernel::boot::BootContext;
 
 fn main() {
-    // --- Wrapper-side entry (WF-1) ---
-    println!("{}", entry::wrapper_entry_status());
-    println!("{}", entry::entry_phase_label());
-    demo_entry_phases();
+    let context = boot_context::host_dev_loop_context();
 
-    // --- Bridge (WF-2) + synthetic BootContext (Minimal v1) ---
-    println!("{}", bridge::bridge_status());
-    println!("{}", bridge::bridge_phase());
-    println!("{}", bridge::bridge_to_handoff());
-    println!("{}", bridge::bridge_to_summary());
-    let boot_context = bridge::SyntheticBootContext::fbe1_default();
-    println!("{}", bridge::bridge_context_status(&boot_context));
     println!(
-        "boot-context: version={} arch={} mem_map={} serial={} experiment={}",
-        boot_context.version,
-        boot_context.arch_label,
-        boot_context.memory_map_present,
-        boot_context.serial_available,
-        boot_context.experiment_mode
+        "adrian-boot-image: constructed BootContext (arch={:?}, valid={})",
+        context.architecture,
+        context.is_valid()
     );
 
-    // --- Invoke (WF-3) ---
-    println!("{}", invoke::invoke_status());
-    println!("{}", invoke::invoke_phase());
-    println!("{}", invoke::handoff_to_invocation());
-    println!("{}", invoke::invocation_to_summary());
+    if !context.is_valid() {
+        eprintln!("adrian-boot-image: BootContext failed validation \u{2014} refusing to cross");
+        std::process::exit(1);
+    }
 
-    // --- FBE-1 / flow framing (all stages labeled) ---
-    println!("{}", flow::wrapper_flow_summary());
-    println!("{}", flow::wrapper_semantic_chain_summary());
-    println!("{}", flow::mrt1_coordination_summary());
-    demo_wrapper_stages();
-
-    // --- Synthetic handoff model (FMH-1) ---
-    let handoff_model = handoff::SyntheticHandoff::fbe1_default();
-    println!("{}", handoff::handoff_status());
-    println!("{}", handoff::handoff_summary(&handoff_model));
-    println!("{}", handoff::handoff_transition_relation());
-
-    // --- Transition boundary (MRT-1) ---
-    println!("{}", transition::transition_status());
-    println!("{}", transition::transition_boundary_label());
-    println!("{}", transition::transition_candidate_phase_label());
-    println!("{}", transition::transition_marker_proof_relation());
-    demo_transition_phases();
-
-    // --- Structured MRT-1 transition candidate (all fields read) ---
-    let cand = candidate::TransitionCandidate::mrt1_current();
-    println!("{}", candidate::candidate_status());
-    println!("{}", candidate::candidate_summary(&cand));
+    println!("adrian-boot-image: crossing into adrian_kernel::entry::kernel_entry now.");
     println!(
-        "candidate-fields: version={} label={} phase_label={}",
-        cand.version,
-        cand.label,
-        cand.phase_label
-    );
-    println!(
-        "candidate-gate: ready_for_real_crossing_gate={} experiment_only={}",
-        cand.ready_for_real_crossing_gate(),
-        cand.is_experiment_only()
+        "adrian-boot-image: this does not return by design \u{2014} a kernel entry point never \
+         hands control back. Kernel debug markers follow; Ctrl+C to stop."
     );
 
-    // --- First simulated boundary crossing (same-crate stub target) ---
-    let outcome = invoke::perform_simulated_crossing(&boot_context);
-    println!("{}", invoke::crossing_status(&outcome));
-    println!(
-        "crossing-outcome: entry_reached={} marker_count={} halt_reached={} simulated={}",
-        outcome.entry_reached,
-        outcome.marker_count,
-        outcome.halt_reached,
-        outcome.simulated
-    );
+    cross_into_kernel(&context)
+}
+
+/// `kernel_entry` diverges in practice (every path ends in
+/// `halt_forever`), but its signature is `-> ()`, not `-> !` \u{2014} it's
+/// written from the kernel's perspective, where nothing is ever there
+/// to \"return\" to. This wrapper marks the divergence explicitly at
+/// the call site instead of changing the kernel's own signature.
+fn cross_into_kernel(context: &BootContext) -> ! {
+    adrian_kernel::entry::kernel_entry(context);
+    unreachable!("kernel_entry does not return")
 }

@@ -7,3 +7,10 @@ edition = "2021"
 path = "src/lib.rs"
 
 [dependencies]
+
+[features]
+default = []
+# Enables hosted-mode compilation: links std, and swaps privileged
+# bare-metal primitives (raw x86 port I/O, the no_std panic handler)
+# for host-safe equivalents. Bare-metal builds leave this off.
+std = []
