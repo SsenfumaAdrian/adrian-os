@@ -22,7 +22,11 @@ pub fn early_kernel_init_with_context(context: &BootContext) {
     crate::arch::early_arch_init();
 
     crate::debug::debug_marker("AXIOM: MM INIT");
-    crate::mm::early_mm_init();
+    // No bootloader (Halo) yet, so there is no real memory map to pass --
+    // an empty slice is honest about that. early_mm_init's classification
+    // and allocator logic are already written against real MemoryRegion
+    // data; only this call site changes once Halo can supply it.
+    let _bootstrap_allocator = crate::mm::early_mm_init(&[]);
 
     crate::debug::debug_marker("AXIOM: SECURITY INIT");
     crate::security::early_security_init();
