@@ -1,4 +1,5 @@
-﻿pub mod port_io;
+﻿pub mod idt;
+pub mod port_io;
 
 /// x86_64 architecture support scaffold for ADRIAN OS.
 
@@ -19,10 +20,13 @@ fn early_cpu_init() {
 }
 
 fn early_descriptor_tables_init() {
-    // Planned:
-    // - GDT layout
-    // - IDT layout
-    // - privilege transition planning
+    // Confirms the table itself encodes and constructs correctly --
+    // every slot starts absent, as it should before any handler is
+    // installed. Installing real exception handlers and calling
+    // Idt::load() is follow-up work: a loaded IDT needs a `'static`
+    // home, which means real kernel-wide static state that doesn't
+    // exist yet. GDT layout is also still planned.
+    let _idt = idt::Idt::new();
 }
 
 fn early_interrupt_init() {
