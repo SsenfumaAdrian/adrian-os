@@ -1,4 +1,5 @@
-﻿use crate::object::KernelObjectId;
+﻿use crate::error::KernelError;
+use crate::object::KernelObjectId;
 
 /// Basic thread lifecycle placeholder.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,14 +100,23 @@ pub fn make_runnable<const T: usize, const Q: usize>(
     queue.enqueue(id)
 }
 
+/// Create a new thread in the `Created` state, owned by `process_id`.
+/// The general entry point -- both `early_thread_init` and, eventually,
+/// a real ThreadCreate syscall handler call through here. Not yet
+/// runnable on its own; see `make_runnable`.
+pub fn create_thread(process_id: KernelObjectId) -> Result<KernelObjectId, KernelError> {
+    THREAD_TABLE
+        .lock()
+        .spawn(process_id)
+        .ok_or(KernelError::OutOfMemory)
+}
+
 /// Early thread bring-up step: creates the kernel's own bootstrap
 /// thread inside `process_id` and makes it runnable -- the first time
 /// anything real goes into the scheduler's ready queue, rather than
 /// the queue just existing empty and untested against reality.
 pub fn early_thread_init(process_id: KernelObjectId) {
-    let id = THREAD_TABLE
-        .lock()
-        .spawn(process_id)
+    let id = create_thread(process_id)
         .expect("thread table has zero capacity: a build-time bug, not a runtime condition");
 
     let mut table = THREAD_TABLE.lock();

@@ -1,4 +1,5 @@
-﻿use crate::object::KernelObjectId;
+﻿use crate::error::KernelError;
+use crate::object::KernelObjectId;
 
 /// Basic process lifecycle placeholder.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,14 +84,20 @@ pub const MAX_PROCESSES: usize = 32;
 pub static PROCESS_TABLE: crate::sync::SpinLock<ProcessTable<MAX_PROCESSES>> =
     crate::sync::SpinLock::new(ProcessTable::new());
 
+/// Create a new process in the `Created` state. This is the general
+/// entry point -- both `early_process_init` (the one-time bootstrap
+/// process) and, eventually, a real ProcessCreate syscall handler call
+/// through here rather than duplicating table access.
+pub fn create_process() -> Result<KernelObjectId, KernelError> {
+    PROCESS_TABLE.lock().spawn().ok_or(KernelError::OutOfMemory)
+}
+
 /// Early process bring-up step: creates the kernel's own bootstrap
 /// process -- the implicit process that owns kernel-mode execution
 /// before any user process exists. Returns its id so
 /// thread::early_thread_init can create a thread inside it.
 pub fn early_process_init() -> KernelObjectId {
-    PROCESS_TABLE
-        .lock()
-        .spawn()
+    create_process()
         .expect("process table has zero capacity: a build-time bug, not a runtime condition")
 }
 
