@@ -159,6 +159,16 @@ impl BootstrapAllocator {
     }
 }
 
+/// The kernel's physical bootstrap allocator. A single global instance
+/// -- there is only one physical address space to allocate out of.
+/// Starts unseeded (`BootstrapAllocator::new()` has nothing to
+/// allocate from yet); `early_mm_init()` seeds it once boot data is
+/// available. `SpinLock` gives it a real `'static` home so any
+/// subsystem can reach it directly, rather than threading an
+/// allocator handle through every call site that might need one.
+pub static BOOTSTRAP_ALLOCATOR: crate::sync::SpinLock<BootstrapAllocator> =
+    crate::sync::SpinLock::new(BootstrapAllocator::new());
+
 /// Main early memory-management bring-up step.
 ///
 /// `regions` is whatever memory map the caller has. Today that's
@@ -168,10 +178,8 @@ impl BootstrapAllocator {
 /// classification and allocator logic above are written against the
 /// real `MemoryRegion` type, so nothing here needs to change once Halo
 /// starts supplying real regions; only the caller's input does.
-pub fn early_mm_init(regions: &[MemoryRegion]) -> BootstrapAllocator {
-    let mut allocator = BootstrapAllocator::new();
-    allocator.init(regions);
-    allocator
+pub fn early_mm_init(regions: &[MemoryRegion]) {
+    BOOTSTRAP_ALLOCATOR.lock().init(regions);
 }
 
 #[cfg(test)]
@@ -263,5 +271,24 @@ mod tests {
         let mut allocator = BootstrapAllocator::new();
         allocator.init(&regions);
         assert_eq!(allocator.allocate(0, 8), None);
+    }
+
+    #[test]
+    fn global_allocator_starts_unseeded_then_early_mm_init_seeds_it() {
+        // Deliberately one test, not two. BOOTSTRAP_ALLOCATOR is a
+        // global static and cargo test runs tests concurrently by
+        // default; two separate tests each touching it would race
+        // against each other's mutations with no ordering guarantee.
+        // Keeping the whole sequence -- starts empty, gets seeded,
+        // can then allocate -- inside a single test sidesteps that
+        // entirely rather than relying on test execution order.
+        assert_eq!(BOOTSTRAP_ALLOCATOR.lock().remaining(), 0);
+
+        let regions = [region(0x1000, 0x2000, MemoryRegionKind::Usable)];
+        early_mm_init(&regions);
+
+        let mut allocator = BOOTSTRAP_ALLOCATOR.lock();
+        assert_eq!(allocator.remaining(), 0x2000);
+        assert!(allocator.allocate(64, 8).is_some());
     }
 }
