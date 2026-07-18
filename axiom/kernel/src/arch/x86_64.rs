@@ -1,4 +1,5 @@
 ﻿pub mod idt;
+pub mod paging;
 pub mod pic;
 pub mod pit;
 pub mod port_io;
@@ -12,6 +13,7 @@ pub fn early_arch_init() {
     early_interrupt_init();
     early_timer_init();
     early_serial_init();
+    early_paging_init();
 }
 
 fn early_cpu_init() {
@@ -57,4 +59,16 @@ fn early_timer_init() {
 
 fn early_serial_init() {
     let _ = crate::debug::serial::serial_debug_init();
+}
+
+fn early_paging_init() {
+    // Confirms PageTable constructs correctly and starts fully empty
+    // -- the same "prove it builds" role early_descriptor_tables_init
+    // plays for the IDT. Walking/creating tables and actually loading
+    // CR3 both go further than that: whether physical addresses are
+    // directly dereferenceable while building tables depends on the
+    // boot-time memory model (paging already on from firmware,
+    // identity-mapped, or something else), which depends on real
+    // firmware/Halo integration that doesn't exist yet.
+    let _table = paging::PageTable::new();
 }
