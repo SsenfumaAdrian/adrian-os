@@ -37,6 +37,12 @@ pub fn early_kernel_init_with_context(context: &BootContext) {
     crate::debug::debug_marker("AXIOM: SCHED INIT");
     crate::sched::early_sched_init();
 
+    crate::debug::debug_marker("AXIOM: PROCESS INIT");
+    let kernel_process_id = crate::process::early_process_init();
+
+    crate::debug::debug_marker("AXIOM: THREAD INIT");
+    crate::thread::early_thread_init(kernel_process_id);
+
     crate::debug::debug_marker("AXIOM: HALT");
     enter_idle_placeholder();
 }

@@ -9,6 +9,7 @@
 /// concerns apart means this module is fully testable without a real
 /// task, a real stack, or real hardware -- exactly the same split
 /// already used for mm's allocator and arch's IDT/PIC/PIT.
+use crate::object::KernelObjectId;
 
 /// Scheduling priority tiers. Not wired into RunQueue yet -- ordering
 /// today is plain round-robin within a single queue, no tiers -- but
@@ -38,12 +39,6 @@ impl SchedulerState {
     }
 }
 
-/// Opaque task identifier. What it actually refers to (a real thread
-/// with a real stack and saved registers) doesn't exist yet -- this
-/// is deliberately just enough to test ordering logic against.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TaskId(pub u64);
-
 /// Ready-queue capacity for early bring-up. An honest reflection of
 /// where the kernel actually is right now (no heap, so no
 /// alloc::collections::VecDeque, so a fixed bound), not a permanent
@@ -55,7 +50,7 @@ pub const MAX_TASKS: usize = 64;
 /// than a heap-allocated collection, since no heap allocator exists
 /// yet -- no `#[global_allocator]` is set up anywhere in this crate.
 pub struct RunQueue<const CAPACITY: usize> {
-    tasks: [Option<TaskId>; CAPACITY],
+    tasks: [Option<KernelObjectId>; CAPACITY],
     head: usize,
     len: usize,
 }
@@ -84,7 +79,7 @@ impl<const CAPACITY: usize> RunQueue<CAPACITY> {
     /// Add a task to the back of the queue. `false` if the queue is
     /// already at capacity -- the caller decides what that means,
     /// there's no policy here for what to do about a full queue.
-    pub fn enqueue(&mut self, task: TaskId) -> bool {
+    pub fn enqueue(&mut self, task: KernelObjectId) -> bool {
         if self.is_full() {
             return false;
         }
@@ -100,7 +95,7 @@ impl<const CAPACITY: usize> RunQueue<CAPACITY> {
     /// in with another `enqueue`, not handled automatically here:
     /// only the caller knows whether a task is still runnable versus
     /// now blocked or terminated.
-    pub fn dequeue(&mut self) -> Option<TaskId> {
+    pub fn dequeue(&mut self) -> Option<KernelObjectId> {
         if self.is_empty() {
             return None;
         }
@@ -153,22 +148,22 @@ mod tests {
     #[test]
     fn fifo_order_is_preserved() {
         let mut queue: RunQueue<4> = RunQueue::new();
-        queue.enqueue(TaskId(1));
-        queue.enqueue(TaskId(2));
-        queue.enqueue(TaskId(3));
+        queue.enqueue(KernelObjectId(1));
+        queue.enqueue(KernelObjectId(2));
+        queue.enqueue(KernelObjectId(3));
 
-        assert_eq!(queue.dequeue(), Some(TaskId(1)));
-        assert_eq!(queue.dequeue(), Some(TaskId(2)));
-        assert_eq!(queue.dequeue(), Some(TaskId(3)));
+        assert_eq!(queue.dequeue(), Some(KernelObjectId(1)));
+        assert_eq!(queue.dequeue(), Some(KernelObjectId(2)));
+        assert_eq!(queue.dequeue(), Some(KernelObjectId(3)));
     }
 
     #[test]
     fn enqueue_fails_when_full() {
         let mut queue: RunQueue<2> = RunQueue::new();
-        assert!(queue.enqueue(TaskId(1)));
-        assert!(queue.enqueue(TaskId(2)));
+        assert!(queue.enqueue(KernelObjectId(1)));
+        assert!(queue.enqueue(KernelObjectId(2)));
         assert!(queue.is_full());
-        assert!(!queue.enqueue(TaskId(3)));
+        assert!(!queue.enqueue(KernelObjectId(3)));
         // A rejected enqueue must not corrupt what's already queued.
         assert_eq!(queue.len(), 2);
     }
@@ -178,26 +173,26 @@ mod tests {
         let mut queue: RunQueue<4> = RunQueue::new();
 
         for id in 1..=4u64 {
-            assert!(queue.enqueue(TaskId(id)));
+            assert!(queue.enqueue(KernelObjectId(id)));
         }
         assert!(queue.is_full());
 
-        assert_eq!(queue.dequeue(), Some(TaskId(1)));
-        assert_eq!(queue.dequeue(), Some(TaskId(2)));
+        assert_eq!(queue.dequeue(), Some(KernelObjectId(1)));
+        assert_eq!(queue.dequeue(), Some(KernelObjectId(2)));
 
         // Tail wraps past the array's physical end here: head=2,
         // len=2, so the next slot is index 0, not a new index past 3.
-        assert!(queue.enqueue(TaskId(5)));
-        assert!(queue.enqueue(TaskId(6)));
+        assert!(queue.enqueue(KernelObjectId(5)));
+        assert!(queue.enqueue(KernelObjectId(6)));
         assert!(queue.is_full());
 
         // FIFO order must hold across the wrap: 3 and 4 were enqueued
         // before 5 and 6, so they come out first despite 5/6 now
         // physically sitting earlier in the backing array.
-        assert_eq!(queue.dequeue(), Some(TaskId(3)));
-        assert_eq!(queue.dequeue(), Some(TaskId(4)));
-        assert_eq!(queue.dequeue(), Some(TaskId(5)));
-        assert_eq!(queue.dequeue(), Some(TaskId(6)));
+        assert_eq!(queue.dequeue(), Some(KernelObjectId(3)));
+        assert_eq!(queue.dequeue(), Some(KernelObjectId(4)));
+        assert_eq!(queue.dequeue(), Some(KernelObjectId(5)));
+        assert_eq!(queue.dequeue(), Some(KernelObjectId(6)));
         assert_eq!(queue.dequeue(), None);
         assert!(queue.is_empty());
     }
@@ -208,15 +203,15 @@ mod tests {
         // task to run, then -- if it's still runnable -- enqueue it
         // again rather than this doing that automatically.
         let mut queue: RunQueue<3> = RunQueue::new();
-        queue.enqueue(TaskId(1));
-        queue.enqueue(TaskId(2));
+        queue.enqueue(KernelObjectId(1));
+        queue.enqueue(KernelObjectId(2));
 
         let running = queue.dequeue().unwrap();
-        assert_eq!(running, TaskId(1));
+        assert_eq!(running, KernelObjectId(1));
         queue.enqueue(running); // still runnable, back of the line
 
-        assert_eq!(queue.dequeue(), Some(TaskId(2)));
-        assert_eq!(queue.dequeue(), Some(TaskId(1)));
+        assert_eq!(queue.dequeue(), Some(KernelObjectId(2)));
+        assert_eq!(queue.dequeue(), Some(KernelObjectId(1)));
     }
 
     #[test]
