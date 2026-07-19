@@ -57,7 +57,7 @@ impl<const CAPACITY: usize> ThreadTable<CAPACITY> {
     /// is distinct from Runnable, not a synonym for it).
     pub fn spawn(&mut self, process_id: KernelObjectId) -> Option<KernelObjectId> {
         let slot = self.threads.iter().position(|t| t.is_none())?;
-        let id = crate::object::allocate_id();
+        let id = crate::object::allocate_id(crate::object::KernelObjectKind::Thread)?;
         self.threads[slot] = Some(Thread::new(id, process_id));
         Some(id)
     }

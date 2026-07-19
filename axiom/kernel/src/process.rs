@@ -57,7 +57,7 @@ impl<const CAPACITY: usize> ProcessTable<CAPACITY> {
     /// design worked out.
     pub fn spawn(&mut self) -> Option<KernelObjectId> {
         let slot = self.processes.iter().position(|p| p.is_none())?;
-        let id = crate::object::allocate_id();
+        let id = crate::object::allocate_id(crate::object::KernelObjectKind::Process)?;
         self.processes[slot] = Some(Process::new(id));
         Some(id)
     }
