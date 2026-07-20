@@ -58,11 +58,10 @@ pub fn dispatch_syscall(number: u64, arg0: u64) -> SyscallResult<u64> {
         // can look up any id's kind and dispatch to the right table.
         SyscallNumber::ChannelCreate => crate::ipc::create_channel().ok_or(KernelError::OutOfMemory).map(|id| id.0),
 
-        // EventObject exists as a type (ipc.rs) but has no table and
-        // no create/destroy logic yet -- unlike Channel, which just
-        // got both this same commit. Genuinely still unsupported,
-        // not a placeholder alongside things that now work.
-        SyscallNumber::EventCreate => Err(KernelError::NotSupported),
+        // EventObject now has real signal/clear/is_signaled logic and
+        // a real table (ipc.rs), same as Channel got this same
+        // commit.
+        SyscallNumber::EventCreate => crate::ipc::create_event().ok_or(KernelError::OutOfMemory).map(|id| id.0),
 
         // Now a real generic dispatch: look up what kind of object
         // this id actually is via the handle registry, then destroy
@@ -102,6 +101,13 @@ pub fn dispatch_syscall(number: u64, arg0: u64) -> SyscallResult<u64> {
                 }
                 Some(crate::object::KernelObjectKind::Channel) => {
                     if crate::ipc::destroy_channel(id) {
+                        Ok(0)
+                    } else {
+                        Err(KernelError::NotFound)
+                    }
+                }
+                Some(crate::object::KernelObjectKind::Event) => {
+                    if crate::ipc::destroy_event(id) {
                         Ok(0)
                     } else {
                         Err(KernelError::NotFound)
@@ -166,10 +172,19 @@ mod tests {
     }
 
     #[test]
-    fn event_create_is_not_yet_supported() {
+    fn event_create_returns_a_valid_nonzero_id() {
+        let result = dispatch_syscall(SyscallNumber::EventCreate as u64, 0);
+        assert!(result.is_ok());
+        assert_ne!(result.unwrap(), 0);
+    }
+
+    #[test]
+    fn handle_close_round_trips_a_real_event() {
+        let event_id = dispatch_syscall(SyscallNumber::EventCreate as u64, 0).unwrap();
+        assert_eq!(dispatch_syscall(SyscallNumber::HandleClose as u64, event_id), Ok(0));
         assert_eq!(
-            dispatch_syscall(SyscallNumber::EventCreate as u64, 0),
-            Err(KernelError::NotSupported)
+            dispatch_syscall(SyscallNumber::HandleClose as u64, event_id),
+            Err(KernelError::NotFound)
         );
     }
 

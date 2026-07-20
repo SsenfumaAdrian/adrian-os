@@ -16,7 +16,29 @@ pub struct MessageHeader {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EventObject {
-    pub signaled: bool,
+    signaled: bool,
+}
+
+impl EventObject {
+    pub const fn new() -> Self {
+        Self { signaled: false }
+    }
+
+    pub fn signal(&mut self) {
+        self.signaled = true;
+    }
+
+    /// Manual reset back to unsignaled. There's no auto-reset-on-wait
+    /// variant here -- that's a real wait/wake distinction that needs
+    /// actual thread blocking to mean anything, which doesn't exist
+    /// yet (same reason waiting is polling below, not blocking).
+    pub fn clear(&mut self) {
+        self.signaled = false;
+    }
+
+    pub const fn is_signaled(&self) -> bool {
+        self.signaled
+    }
 }
 
 /// Fixed maximum payload size. Small enough to be a completely
@@ -205,10 +227,89 @@ pub fn destroy_channel(id: crate::object::KernelObjectId) -> bool {
     CHANNEL_TABLE.lock().destroy(id)
 }
 
+/// Fixed-capacity event registry, same shape as ChannelTable.
+pub const MAX_EVENTS: usize = 16;
+
+pub struct EventTable<const CAPACITY: usize> {
+    slots: [Option<(crate::object::KernelObjectId, EventObject)>; CAPACITY],
+}
+
+impl<const CAPACITY: usize> EventTable<CAPACITY> {
+    pub const fn new() -> Self {
+        Self { slots: [None; CAPACITY] }
+    }
+
+    pub fn count(&self) -> usize {
+        self.slots.iter().filter(|s| s.is_some()).count()
+    }
+
+    pub fn create(&mut self) -> Option<crate::object::KernelObjectId> {
+        let slot = self.slots.iter().position(|s| s.is_none())?;
+        let id = crate::object::allocate_id(crate::object::KernelObjectKind::Event)?;
+        self.slots[slot] = Some((id, EventObject::new()));
+        Some(id)
+    }
+
+    pub fn get_mut(&mut self, id: crate::object::KernelObjectId) -> Option<&mut EventObject> {
+        self.slots
+            .iter_mut()
+            .flatten()
+            .find(|(entry_id, _)| *entry_id == id)
+            .map(|(_, event)| event)
+    }
+
+    pub fn destroy(&mut self, id: crate::object::KernelObjectId) -> bool {
+        match self
+            .slots
+            .iter_mut()
+            .position(|s| matches!(s, Some((entry_id, _)) if *entry_id == id))
+        {
+            Some(index) => {
+                self.slots[index] = None;
+                crate::object::HANDLE_REGISTRY.lock().unregister(id);
+                true
+            }
+            None => false,
+        }
+    }
+}
+
+pub static EVENT_TABLE: crate::sync::SpinLock<EventTable<MAX_EVENTS>> =
+    crate::sync::SpinLock::new(EventTable::new());
+
+pub fn create_event() -> Option<crate::object::KernelObjectId> {
+    EVENT_TABLE.lock().create()
+}
+
+pub fn destroy_event(id: crate::object::KernelObjectId) -> bool {
+    EVENT_TABLE.lock().destroy(id)
+}
+
+/// Not wired to any syscall number yet -- SyscallNumber only has
+/// EventCreate, no EventSignal/EventWait. Available for other kernel
+/// code to call directly in the meantime, same as Channel's
+/// send/receive: create/destroy is the handle-lifecycle concern this
+/// commit completes, actual I/O on the handle is separately still
+/// open, for events same as it already was for channels.
+pub fn signal_event(id: crate::object::KernelObjectId) -> bool {
+    match EVENT_TABLE.lock().get_mut(id) {
+        Some(event) => {
+            event.signal();
+            true
+        }
+        None => false,
+    }
+}
+
+pub fn is_event_signaled(id: crate::object::KernelObjectId) -> Option<bool> {
+    EVENT_TABLE.lock().get_mut(id).map(|event| event.is_signaled())
+}
+
 pub fn early_ipc_init() {
-    // Channel and Message have real send/receive logic, and
-    // ChannelTable now gives channels a real syscall-reachable home
-    // (create_channel/destroy_channel) -- both proven correct by this
+    // Channel and Message have real send/receive logic, and both
+    // ChannelTable and EventTable now give channels and events a real
+    // syscall-reachable home (create_channel/destroy_channel,
+    // create_event/destroy_event) -- all proven correct by this
     // module's own tests rather than exercised here.
 }
 
@@ -372,5 +473,71 @@ mod tests {
 
         // A destroyed id can't be destroyed again.
         assert!(!table.destroy(id));
+    }
+
+    #[test]
+    fn new_event_starts_unsignaled() {
+        assert!(!EventObject::new().is_signaled());
+    }
+
+    #[test]
+    fn signal_then_clear_round_trips() {
+        let mut event = EventObject::new();
+        event.signal();
+        assert!(event.is_signaled());
+        event.clear();
+        assert!(!event.is_signaled());
+    }
+
+    #[test]
+    fn event_table_create_returns_a_valid_nonzero_id() {
+        let mut table: EventTable<4> = EventTable::new();
+        let id = table.create();
+        assert!(id.is_some());
+        assert_ne!(id.unwrap().0, 0);
+    }
+
+    #[test]
+    fn event_table_create_fails_when_full() {
+        let mut table: EventTable<2> = EventTable::new();
+        assert!(table.create().is_some());
+        assert!(table.create().is_some());
+        assert!(table.create().is_none());
+        assert_eq!(table.count(), 2);
+    }
+
+    #[test]
+    fn event_table_get_mut_finds_the_right_event_and_none_for_unknown() {
+        let mut table: EventTable<4> = EventTable::new();
+        let id = table.create().unwrap();
+
+        table.get_mut(id).unwrap().signal();
+        assert!(table.get_mut(id).unwrap().is_signaled());
+
+        assert!(table.get_mut(crate::object::KernelObjectId(u64::MAX)).is_none());
+    }
+
+    #[test]
+    fn event_table_destroy_frees_the_slot_and_unregisters_the_id() {
+        let mut table: EventTable<2> = EventTable::new();
+        let id = table.create().unwrap();
+        assert_eq!(table.count(), 1);
+
+        assert!(table.destroy(id));
+        assert_eq!(table.count(), 0);
+        assert!(table.get_mut(id).is_none());
+        assert_eq!(crate::object::HANDLE_REGISTRY.lock().kind_of(id), None);
+
+        assert!(!table.destroy(id));
+    }
+
+    #[test]
+    fn global_signal_and_check_round_trip_through_the_real_table() {
+        let id = create_event().unwrap();
+        assert_eq!(is_event_signaled(id), Some(false));
+        assert!(signal_event(id));
+        assert_eq!(is_event_signaled(id), Some(true));
+        destroy_event(id);
+        assert_eq!(is_event_signaled(id), None);
     }
 }
