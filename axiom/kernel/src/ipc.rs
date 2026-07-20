@@ -63,6 +63,7 @@ pub const MAX_QUEUED_MESSAGES: usize = 8;
 /// duplicating roughly a dozen lines of proven-correct logic is a
 /// smaller risk right now than refactoring already-tested code to
 /// generalize over it.
+#[derive(Clone, Copy)]
 pub struct Channel {
     state: ChannelState,
     messages: [Option<Message>; MAX_QUEUED_MESSAGES],
@@ -128,13 +129,87 @@ impl Channel {
     }
 }
 
+/// Fixed-capacity channel registry. Stores (id, Channel) pairs rather
+/// than adding an id field to Channel itself -- keeps Channel unaware
+/// of its own registry identity (the table owns that mapping, the
+/// object doesn't need to), and avoids touching Channel's existing
+/// constructor/tests for something only the table needs.
+pub const MAX_CHANNELS: usize = 16;
+
+pub struct ChannelTable<const CAPACITY: usize> {
+    slots: [Option<(crate::object::KernelObjectId, Channel)>; CAPACITY],
+}
+
+impl<const CAPACITY: usize> ChannelTable<CAPACITY> {
+    pub const fn new() -> Self {
+        Self { slots: [None; CAPACITY] }
+    }
+
+    pub fn count(&self) -> usize {
+        self.slots.iter().filter(|s| s.is_some()).count()
+    }
+
+    /// Create a new open channel. `None` if the table or the global
+    /// handle registry is full.
+    pub fn create(&mut self) -> Option<crate::object::KernelObjectId> {
+        let slot = self.slots.iter().position(|s| s.is_none())?;
+        let id = crate::object::allocate_id(crate::object::KernelObjectKind::Channel)?;
+        self.slots[slot] = Some((id, Channel::new()));
+        Some(id)
+    }
+
+    pub fn get_mut(&mut self, id: crate::object::KernelObjectId) -> Option<&mut Channel> {
+        self.slots
+            .iter_mut()
+            .flatten()
+            .find(|(entry_id, _)| *entry_id == id)
+            .map(|(_, channel)| channel)
+    }
+
+    /// Remove a channel from the table entirely -- distinct from
+    /// `Channel::close`, which marks it Closed while leaving already-
+    /// queued messages drainable. This actually frees the slot, and
+    /// unregisters the id from the global handle registry in the same
+    /// step, mirroring how `create` bundles allocation with
+    /// registration rather than leaving it as a separate call a
+    /// caller could forget.
+    pub fn destroy(&mut self, id: crate::object::KernelObjectId) -> bool {
+        match self
+            .slots
+            .iter_mut()
+            .position(|s| matches!(s, Some((entry_id, _)) if *entry_id == id))
+        {
+            Some(index) => {
+                self.slots[index] = None;
+                crate::object::HANDLE_REGISTRY.lock().unregister(id);
+                true
+            }
+            None => false,
+        }
+    }
+}
+
+/// The kernel's channel registry, same pattern as PROCESS_TABLE and
+/// THREAD_TABLE.
+pub static CHANNEL_TABLE: crate::sync::SpinLock<ChannelTable<MAX_CHANNELS>> =
+    crate::sync::SpinLock::new(ChannelTable::new());
+
+/// General entry points a real ChannelCreate/HandleClose syscall
+/// handler calls, matching process::create_process /
+/// thread::create_thread's naming.
+pub fn create_channel() -> Option<crate::object::KernelObjectId> {
+    CHANNEL_TABLE.lock().create()
+}
+
+pub fn destroy_channel(id: crate::object::KernelObjectId) -> bool {
+    CHANNEL_TABLE.lock().destroy(id)
+}
+
 pub fn early_ipc_init() {
-    // Channel and Message now have real send/receive logic, proven
-    // correct by this module's own tests rather than exercised here.
-    // No global channel table to seed: unlike the scheduler's single
-    // ready queue, channels are created per-use (a real ChannelCreate
-    // syscall -- still a stub in syscall.rs, since wiring it needs a
-    // handle table that doesn't exist yet), not pre-allocated at boot.
+    // Channel and Message have real send/receive logic, and
+    // ChannelTable now gives channels a real syscall-reachable home
+    // (create_channel/destroy_channel) -- both proven correct by this
+    // module's own tests rather than exercised here.
 }
 
 #[cfg(test)]
@@ -246,5 +321,56 @@ mod tests {
             assert_eq!(channel.receive().unwrap().header.message_id, i);
         }
         assert!(channel.is_empty());
+    }
+
+    #[test]
+    fn table_create_returns_a_valid_nonzero_id() {
+        // Touches the real global allocate_id/HANDLE_REGISTRY, same
+        // as any other test creating a process/thread/channel
+        // concurrently -- only asserting a relative property (not the
+        // reserved sentinel), safe regardless of execution order.
+        let mut table: ChannelTable<4> = ChannelTable::new();
+        let id = table.create();
+        assert!(id.is_some());
+        assert_ne!(id.unwrap().0, 0);
+    }
+
+    #[test]
+    fn table_create_fails_when_full() {
+        let mut table: ChannelTable<2> = ChannelTable::new();
+        assert!(table.create().is_some());
+        assert!(table.create().is_some());
+        assert!(table.create().is_none());
+        assert_eq!(table.count(), 2);
+    }
+
+    #[test]
+    fn table_get_mut_finds_the_right_channel_and_none_for_unknown() {
+        let mut table: ChannelTable<4> = ChannelTable::new();
+        let id = table.create().unwrap();
+
+        table
+            .get_mut(id)
+            .unwrap()
+            .send(Message::new(header(1), &[]).unwrap())
+            .unwrap();
+        assert_eq!(table.get_mut(id).unwrap().receive().unwrap().header.message_id, 1);
+
+        assert!(table.get_mut(crate::object::KernelObjectId(u64::MAX)).is_none());
+    }
+
+    #[test]
+    fn table_destroy_frees_the_slot_and_unregisters_the_id() {
+        let mut table: ChannelTable<2> = ChannelTable::new();
+        let id = table.create().unwrap();
+        assert_eq!(table.count(), 1);
+
+        assert!(table.destroy(id));
+        assert_eq!(table.count(), 0);
+        assert!(table.get_mut(id).is_none());
+        assert_eq!(crate::object::HANDLE_REGISTRY.lock().kind_of(id), None);
+
+        // A destroyed id can't be destroyed again.
+        assert!(!table.destroy(id));
     }
 }

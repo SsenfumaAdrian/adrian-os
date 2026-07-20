@@ -75,6 +75,21 @@ impl<const CAPACITY: usize> ThreadTable<CAPACITY> {
             None => false,
         }
     }
+
+    /// Remove a thread from the table entirely, unregistering its id
+    /// from the global handle registry in the same step -- mirrors
+    /// how `spawn` bundles allocation with registration rather than
+    /// leaving cleanup as a separate call a caller could forget.
+    pub fn remove(&mut self, id: KernelObjectId) -> bool {
+        match self.threads.iter_mut().position(|t| matches!(t, Some(thread) if thread.id == id)) {
+            Some(index) => {
+                self.threads[index] = None;
+                crate::object::HANDLE_REGISTRY.lock().unregister(id);
+                true
+            }
+            None => false,
+        }
+    }
 }
 
 /// The kernel's thread registry. A single global instance, same
@@ -109,6 +124,12 @@ pub fn create_thread(process_id: KernelObjectId) -> Result<KernelObjectId, Kerne
         .lock()
         .spawn(process_id)
         .ok_or(KernelError::OutOfMemory)
+}
+
+/// The general entry point a real HandleClose syscall handler calls
+/// for a thread id.
+pub fn destroy_thread(id: KernelObjectId) -> bool {
+    THREAD_TABLE.lock().remove(id)
 }
 
 /// Early thread bring-up step: creates the kernel's own bootstrap
@@ -193,5 +214,19 @@ mod tests {
 
         assert!(!make_runnable(&mut table, &mut queue, pid(404)));
         assert!(queue.is_empty());
+    }
+
+    #[test]
+    fn remove_frees_the_slot_and_unregisters_the_id() {
+        let mut table: ThreadTable<2> = ThreadTable::new();
+        let id = table.spawn(pid(1)).unwrap();
+        assert_eq!(table.count(), 1);
+
+        assert!(table.remove(id));
+        assert_eq!(table.count(), 0);
+        assert!(table.get(id).is_none());
+        assert_eq!(crate::object::HANDLE_REGISTRY.lock().kind_of(id), None);
+
+        assert!(!table.remove(id)); // already gone
     }
 }

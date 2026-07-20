@@ -53,18 +53,63 @@ pub fn dispatch_syscall(number: u64, arg0: u64) -> SyscallResult<u64> {
             crate::thread::create_thread(process_id).map(|id| id.0)
         }
 
-        // Channels, events, and handle closing all need a unified
-        // handle table -- one lookup covering processes, threads,
-        // channels, and events together -- that doesn't exist yet.
-        // ProcessTable and ThreadTable are each their own separate
-        // store right now, which is fine for what created them
-        // directly, but a syscall boundary needs one shared space to
-        // hand ids back into. That's a real design question on its
-        // own, not a quick bolt-on here -- Channel and Message
-        // already have real send/receive logic (see ipc.rs), just no
-        // syscall-reachable home yet.
-        SyscallNumber::ChannelCreate | SyscallNumber::EventCreate | SyscallNumber::HandleClose => {
-            Err(KernelError::NotSupported)
+        // The handle registry (object.rs) now resolves what was
+        // previously a real gap here -- ChannelCreate and HandleClose
+        // can look up any id's kind and dispatch to the right table.
+        SyscallNumber::ChannelCreate => crate::ipc::create_channel().ok_or(KernelError::OutOfMemory).map(|id| id.0),
+
+        // EventObject exists as a type (ipc.rs) but has no table and
+        // no create/destroy logic yet -- unlike Channel, which just
+        // got both this same commit. Genuinely still unsupported,
+        // not a placeholder alongside things that now work.
+        SyscallNumber::EventCreate => Err(KernelError::NotSupported),
+
+        // Now a real generic dispatch: look up what kind of object
+        // this id actually is via the handle registry, then destroy
+        // it in whichever table actually owns it. Covers everything
+        // with both a table and a registry-aware remove/destroy
+        // method (Process, Thread, Channel); Event/Timer/etc. don't
+        // have one yet, so those still report NotSupported rather
+        // than silently succeeding at nothing.
+        SyscallNumber::HandleClose => {
+            let id = crate::object::KernelObjectId(arg0);
+            // Bound to a variable, not used directly as the match
+            // scrutinee: `match EXPR.lock().method() { ... }` keeps
+            // EXPR's temporary guard alive for the whole match block,
+            // not just this line, via Rust's temporary lifetime
+            // extension for match scrutinees. The arms below call
+            // into destroy_process/destroy_thread/destroy_channel,
+            // each of which locks HANDLE_REGISTRY again internally --
+            // holding it here too would self-deadlock against the
+            // non-reentrant SpinLock, spinning forever rather than
+            // failing loudly. Binding first drops the guard at the
+            // end of this statement, before the match runs at all.
+            let kind = crate::object::HANDLE_REGISTRY.lock().kind_of(id);
+            match kind {
+                Some(crate::object::KernelObjectKind::Process) => {
+                    if crate::process::destroy_process(id) {
+                        Ok(0)
+                    } else {
+                        Err(KernelError::NotFound)
+                    }
+                }
+                Some(crate::object::KernelObjectKind::Thread) => {
+                    if crate::thread::destroy_thread(id) {
+                        Ok(0)
+                    } else {
+                        Err(KernelError::NotFound)
+                    }
+                }
+                Some(crate::object::KernelObjectKind::Channel) => {
+                    if crate::ipc::destroy_channel(id) {
+                        Ok(0)
+                    } else {
+                        Err(KernelError::NotFound)
+                    }
+                }
+                Some(_) => Err(KernelError::NotSupported),
+                None => Err(KernelError::NotFound),
+            }
         }
     }
 }
@@ -121,18 +166,46 @@ mod tests {
     }
 
     #[test]
-    fn channel_event_and_handle_close_are_not_yet_supported() {
-        assert_eq!(
-            dispatch_syscall(SyscallNumber::ChannelCreate as u64, 0),
-            Err(KernelError::NotSupported)
-        );
+    fn event_create_is_not_yet_supported() {
         assert_eq!(
             dispatch_syscall(SyscallNumber::EventCreate as u64, 0),
             Err(KernelError::NotSupported)
         );
+    }
+
+    #[test]
+    fn channel_create_returns_a_valid_nonzero_id() {
+        let result = dispatch_syscall(SyscallNumber::ChannelCreate as u64, 0);
+        assert!(result.is_ok());
+        assert_ne!(result.unwrap(), 0);
+    }
+
+    #[test]
+    fn handle_close_on_unknown_id_is_not_found() {
         assert_eq!(
-            dispatch_syscall(SyscallNumber::HandleClose as u64, 0),
-            Err(KernelError::NotSupported)
+            dispatch_syscall(SyscallNumber::HandleClose as u64, u64::MAX),
+            Err(KernelError::NotFound)
+        );
+    }
+
+    #[test]
+    fn handle_close_round_trips_a_real_process() {
+        let process_id = dispatch_syscall(SyscallNumber::ProcessCreate as u64, 0).unwrap();
+        assert_eq!(dispatch_syscall(SyscallNumber::HandleClose as u64, process_id), Ok(0));
+        // Already closed -- the id is gone from the registry now.
+        assert_eq!(
+            dispatch_syscall(SyscallNumber::HandleClose as u64, process_id),
+            Err(KernelError::NotFound)
+        );
+    }
+
+    #[test]
+    fn handle_close_round_trips_a_real_channel() {
+        let channel_id = dispatch_syscall(SyscallNumber::ChannelCreate as u64, 0).unwrap();
+        assert_eq!(dispatch_syscall(SyscallNumber::HandleClose as u64, channel_id), Ok(0));
+        assert_eq!(
+            dispatch_syscall(SyscallNumber::HandleClose as u64, channel_id),
+            Err(KernelError::NotFound)
         );
     }
 }

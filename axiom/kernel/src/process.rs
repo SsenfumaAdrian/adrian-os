@@ -75,6 +75,24 @@ impl<const CAPACITY: usize> ProcessTable<CAPACITY> {
             None => false,
         }
     }
+
+    /// Remove a process from the table entirely, unregistering its id
+    /// from the global handle registry in the same step -- mirrors how
+    /// `spawn` bundles allocation with registration.
+    pub fn remove(&mut self, id: KernelObjectId) -> bool {
+        match self
+            .processes
+            .iter_mut()
+            .position(|p| matches!(p, Some(process) if process.id == id))
+        {
+            Some(index) => {
+                self.processes[index] = None;
+                crate::object::HANDLE_REGISTRY.lock().unregister(id);
+                true
+            }
+            None => false,
+        }
+    }
 }
 
 /// The kernel's process registry. A single global instance, same
@@ -90,6 +108,12 @@ pub static PROCESS_TABLE: crate::sync::SpinLock<ProcessTable<MAX_PROCESSES>> =
 /// through here rather than duplicating table access.
 pub fn create_process() -> Result<KernelObjectId, KernelError> {
     PROCESS_TABLE.lock().spawn().ok_or(KernelError::OutOfMemory)
+}
+
+/// The general entry point a real HandleClose syscall handler calls
+/// for a process id.
+pub fn destroy_process(id: KernelObjectId) -> bool {
+    PROCESS_TABLE.lock().remove(id)
 }
 
 /// Early process bring-up step: creates the kernel's own bootstrap
@@ -143,5 +167,19 @@ mod tests {
     fn set_state_on_unknown_id_fails() {
         let mut table: ProcessTable<4> = ProcessTable::new();
         assert!(!table.set_state(KernelObjectId(999), ProcessState::Runnable));
+    }
+
+    #[test]
+    fn remove_frees_the_slot_and_unregisters_the_id() {
+        let mut table: ProcessTable<2> = ProcessTable::new();
+        let id = table.spawn().unwrap();
+        assert_eq!(table.count(), 1);
+
+        assert!(table.remove(id));
+        assert_eq!(table.count(), 0);
+        assert!(table.get(id).is_none());
+        assert_eq!(crate::object::HANDLE_REGISTRY.lock().kind_of(id), None);
+
+        assert!(!table.remove(id)); // already gone
     }
 }
