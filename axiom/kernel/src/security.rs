@@ -98,14 +98,40 @@ impl CapabilityRights {
     }
 }
 
+/// Whether a holder is authorized to perform `requested_rights` on an
+/// object labeled `target_label`, given the holder's own label and
+/// rights. Two independent conditions, both required:
+///
+/// - the requested rights must be derivable from what the holder
+///   actually has (`CapabilityRights::can_derive`)
+/// - the holder's trust label must be at least as trusted as the
+///   target's (`SecurityLabel::at_least_as_trusted_as`)
+///
+/// This is one reasonable, conservative policy shape -- deliberately
+/// not claimed as the definitive Adrian OS security model, which is a
+/// bigger design question than one function should settle on its own.
+/// The conservative choice made here: a capability alone doesn't
+/// bypass label-based trust policy, it only scopes what's possible
+/// once trust policy already permits the interaction. An under-
+/// trusted holder is denied even if it happens to hold the exact
+/// right capability bits.
+pub const fn is_authorized(
+    holder_label: SecurityLabel,
+    holder_rights: CapabilityRights,
+    target_label: SecurityLabel,
+    requested_rights: CapabilityRights,
+) -> bool {
+    holder_label.at_least_as_trusted_as(target_label) && holder_rights.can_derive(requested_rights)
+}
+
 pub fn early_security_init() {
-    // CapabilityRights and SecurityLabel now have real logic --
-    // rights composition (union/intersection/without) and the
-    // can_derive invariant, plus a trust ordering on labels -- proven
-    // correct by this module's own tests. No syscall policy
-    // integration or object access control hooks yet: those need
-    // syscall dispatch (syscall.rs) to actually call into this, which
-    // isn't wired up on that side either yet.
+    // CapabilityRights and SecurityLabel have real logic -- rights
+    // composition, the can_derive invariant, a trust ordering on
+    // labels, and now is_authorized combining both into one check --
+    // all proven correct by this module's own tests. No syscall
+    // policy integration yet: syscall.rs's dispatch doesn't call into
+    // this at all currently, so nothing is actually enforced against
+    // real syscalls yet, only available to call.
 }
 
 #[cfg(test)]
@@ -216,5 +242,60 @@ mod tests {
         assert!(!read_only.can_derive(read_write));
         assert!(!read_only.can_derive(CapabilityRights::EXECUTE));
         assert!(!CapabilityRights::NONE.can_derive(CapabilityRights::READ));
+    }
+
+    #[test]
+    fn is_authorized_requires_both_sufficient_trust_and_sufficient_rights() {
+        assert!(is_authorized(
+            SecurityLabel::Kernel,
+            CapabilityRights::ALL,
+            SecurityLabel::Application,
+            CapabilityRights::READ,
+        ));
+    }
+
+    #[test]
+    fn is_authorized_denies_insufficient_rights_even_with_sufficient_trust() {
+        assert!(!is_authorized(
+            SecurityLabel::Kernel,
+            CapabilityRights::READ,
+            SecurityLabel::Application,
+            CapabilityRights::WRITE,
+        ));
+    }
+
+    #[test]
+    fn is_authorized_denies_insufficient_trust_even_with_sufficient_rights() {
+        // The security-relevant negative case: holding the right
+        // capability bits isn't enough on its own if the holder's
+        // trust label doesn't clear the target's -- an Application
+        // holding CapabilityRights::ALL still can't act on a
+        // Kernel-labeled target.
+        assert!(!is_authorized(
+            SecurityLabel::Application,
+            CapabilityRights::ALL,
+            SecurityLabel::Kernel,
+            CapabilityRights::READ,
+        ));
+    }
+
+    #[test]
+    fn is_authorized_denies_when_both_conditions_fail() {
+        assert!(!is_authorized(
+            SecurityLabel::Application,
+            CapabilityRights::NONE,
+            SecurityLabel::Kernel,
+            CapabilityRights::READ,
+        ));
+    }
+
+    #[test]
+    fn is_authorized_allows_equal_trust_with_matching_rights() {
+        assert!(is_authorized(
+            SecurityLabel::SystemService,
+            CapabilityRights::READ,
+            SecurityLabel::SystemService,
+            CapabilityRights::READ,
+        ));
     }
 }
