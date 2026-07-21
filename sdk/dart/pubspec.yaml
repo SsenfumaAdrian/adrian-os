@@ -1,0 +1,13 @@
+name: adrian_os
+description: >
+  Dart application-layer SDK for ADRIAN OS. Provides the typed API
+  applications call (process/thread/channel/event lifecycle) backed
+  by a host simulation for now -- there is no real syscall bridge
+  yet, since there is no bootable OS or Dart runtime port to call
+  into. See lib/src/backend.dart for exactly what that means and
+  what a real backend would need to replace.
+version: 0.1.0
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+dev_dependencies:
+  test: ^1.24.0
