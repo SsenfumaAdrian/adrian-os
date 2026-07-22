@@ -98,7 +98,18 @@ impl<const CAPACITY: usize> ProcessTable<CAPACITY> {
 /// The kernel's process registry. A single global instance, same
 /// pattern as mm::BOOTSTRAP_ALLOCATOR, sched::READY_QUEUE, and
 /// thread::THREAD_TABLE.
+///
+/// A fixed-capacity array baked into the kernel binary, not the same
+/// thing as config::KERNEL_MAX_PROCESSES (4096) -- that's the
+/// eventual full-system target once a real dynamic allocator exists;
+/// this is a much smaller, honest bound for early bring-up, before
+/// there's a heap to grow into. The assertion below is the actual
+/// enforced relationship between them: this must never exceed that,
+/// checked at compile time rather than left as a comment someone
+/// could let drift.
 pub const MAX_PROCESSES: usize = 32;
+const _: () = assert!(MAX_PROCESSES <= crate::config::KERNEL_MAX_PROCESSES);
+
 pub static PROCESS_TABLE: crate::sync::SpinLock<ProcessTable<MAX_PROCESSES>> =
     crate::sync::SpinLock::new(ProcessTable::new());
 

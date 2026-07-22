@@ -94,7 +94,14 @@ impl<const CAPACITY: usize> ThreadTable<CAPACITY> {
 
 /// The kernel's thread registry. A single global instance, same
 /// pattern as mm::BOOTSTRAP_ALLOCATOR and sched::READY_QUEUE.
+///
+/// Same relationship to config::KERNEL_MAX_THREADS (16384) that
+/// process::MAX_PROCESSES has to KERNEL_MAX_PROCESSES: a much smaller
+/// honest bound for early bring-up, checked at compile time to never
+/// exceed the eventual full-system target.
 pub const MAX_THREADS: usize = 64;
+const _: () = assert!(MAX_THREADS <= crate::config::KERNEL_MAX_THREADS);
+
 pub static THREAD_TABLE: crate::sync::SpinLock<ThreadTable<MAX_THREADS>> =
     crate::sync::SpinLock::new(ThreadTable::new());
 
