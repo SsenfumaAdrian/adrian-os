@@ -2,7 +2,8 @@
 members = [
     "axiom/kernel",
     "axiom/boot-image",
-    "pulse"
+    "pulse",
+    "vault"
 ]
 
 resolver = "2"

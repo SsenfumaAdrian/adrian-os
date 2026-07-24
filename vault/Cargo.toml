@@ -1,0 +1,8 @@
+[package]
+name = "adrian-vault"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+chacha20poly1305 = "0.10"
+zeroize = "=1.8.1"
