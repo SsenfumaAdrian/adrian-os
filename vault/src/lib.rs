@@ -5,6 +5,8 @@ extern crate alloc;
 use alloc::vec::Vec;
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
+use hkdf::Hkdf;
+use sha2::Sha256;
 
 pub const KEY_LEN: usize = 32;
 pub const NONCE_LEN: usize = 12;
@@ -52,6 +54,19 @@ pub fn decrypt(
             Payload { msg: ciphertext, aad: associated_data },
         )
         .map_err(|_| VaultError::OperationFailed)
+}
+
+/// Derive keying material from `ikm` (input keying material) and
+/// `salt`, using RFC 5869 HKDF-SHA256. Writes directly into `okm`
+/// (output keying material) rather than returning a Vec -- unlike
+/// encrypt/decrypt, HKDF's expand step naturally works against a
+/// fixed-size caller buffer, so this needs no heap allocation at all.
+/// `okm`'s length is however much keying material is actually needed
+/// (32 bytes for one SymmetricKey, more if deriving several keys from
+/// one input at once via `info` as a domain separator).
+pub fn derive_key(salt: &[u8], ikm: &[u8], info: &[u8], okm: &mut [u8]) -> Result<(), VaultError> {
+    let hk = Hkdf::<Sha256>::new(Some(salt), ikm);
+    hk.expand(info, okm).map_err(|_| VaultError::OperationFailed)
 }
 
 #[cfg(test)]
@@ -196,5 +211,100 @@ mod tests {
         // the RFC's own plaintext.
         let recovered = decrypt(&key, &nonce, &aad, &expected_ciphertext_and_tag).unwrap();
         assert_eq!(recovered.as_slice(), &plaintext[..]);
+    }
+
+    #[test]
+    fn derive_key_produces_deterministic_output() {
+        let mut a = [0u8; 32];
+        let mut b = [0u8; 32];
+        derive_key(b"salt", b"input key material", b"context", &mut a).unwrap();
+        derive_key(b"salt", b"input key material", b"context", &mut b).unwrap();
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn derive_key_output_depends_on_every_input() {
+        let base = {
+            let mut out = [0u8; 32];
+            derive_key(b"salt", b"ikm", b"info", &mut out).unwrap();
+            out
+        };
+
+        let different_salt = {
+            let mut out = [0u8; 32];
+            derive_key(b"different-salt", b"ikm", b"info", &mut out).unwrap();
+            out
+        };
+        let different_ikm = {
+            let mut out = [0u8; 32];
+            derive_key(b"salt", b"different-ikm", b"info", &mut out).unwrap();
+            out
+        };
+        let different_info = {
+            let mut out = [0u8; 32];
+            derive_key(b"salt", b"ikm", b"different-info", &mut out).unwrap();
+            out
+        };
+
+        // `info` acting as a real domain separator is the actual
+        // point of including it -- deriving two different keys from
+        // the same salt and ikm (e.g. one for encryption, one for
+        // authentication) must not produce the same output.
+        assert_ne!(base, different_salt);
+        assert_ne!(base, different_ikm);
+        assert_ne!(base, different_info);
+    }
+
+    /// RFC 5869 Appendix A.1, "Basic test case with SHA-256" --
+    /// cross-checked against multiple independent sources (the RFC
+    /// itself via rfc-editor.org, and the IETF datatracker mirror)
+    /// before trusting the exact hex, same discipline as the AEAD
+    /// vector above.
+    #[test]
+    fn matches_rfc_5869_test_case_1() {
+        let ikm: [u8; 22] = [
+            0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b,
+            0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b,
+        ];
+        let salt: [u8; 13] = [
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c,
+        ];
+        let info: [u8; 10] = [0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9];
+
+        // L = 42
+        let expected_okm: [u8; 42] = [
+            0x3c, 0xb2, 0x5f, 0x25, 0xfa, 0xac, 0xd5, 0x7a, 0x90, 0x43, 0x4f, 0x64, 0xd0, 0x36,
+            0x2f, 0x2a, 0x2d, 0x2d, 0x0a, 0x90, 0xcf, 0x1a, 0x5a, 0x4c, 0x5d, 0xb0, 0x2d, 0x56,
+            0xec, 0xc4, 0xc5, 0xbf, 0x34, 0x00, 0x72, 0x08, 0xd5, 0xb8, 0x87, 0x18, 0x58, 0x65,
+        ];
+
+        let mut okm = [0u8; 42];
+        derive_key(&salt, &ikm, &info, &mut okm).unwrap();
+        assert_eq!(okm, expected_okm);
+    }
+
+    /// RFC 5869 Appendix A.3, "Test with SHA-256 and zero-length
+    /// salt/info" -- the edge case where salt and info are both
+    /// present-but-empty rather than omitted. Worth testing
+    /// separately from Test Case 1: an implementation could pass the
+    /// basic case while mishandling the empty-input edge case (e.g.
+    /// treating a zero-length salt as "no salt" incorrectly, or
+    /// panicking on an empty slice).
+    #[test]
+    fn matches_rfc_5869_test_case_3_empty_salt_and_info() {
+        let ikm: [u8; 22] = [
+            0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b,
+            0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b,
+        ];
+
+        let expected_okm: [u8; 42] = [
+            0x8d, 0xa4, 0xe7, 0x75, 0xa5, 0x63, 0xc1, 0x8f, 0x71, 0x5f, 0x80, 0x2a, 0x06, 0x3c,
+            0x5a, 0x31, 0xb8, 0xa1, 0x1f, 0x5c, 0x5e, 0xe1, 0x87, 0x9e, 0xc3, 0x45, 0x4e, 0x5f,
+            0x3c, 0x73, 0x8d, 0x2d, 0x9d, 0x20, 0x13, 0x95, 0xfa, 0xa4, 0xb6, 0x1a, 0x96, 0xc8,
+        ];
+
+        let mut okm = [0u8; 42];
+        derive_key(&[], &ikm, &[], &mut okm).unwrap();
+        assert_eq!(okm, expected_okm);
     }
 }
