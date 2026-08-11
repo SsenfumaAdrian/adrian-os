@@ -1,7 +1,7 @@
 ﻿[workspace]
 members = [
-    "axiom/kernel",
-    "axiom/boot-image",
+    "rian/kernel",
+    "rian/boot-image",
     "pulse",
     "vault"
 ]
