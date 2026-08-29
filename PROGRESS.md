@@ -17,10 +17,21 @@ rename.
 | Interrupts/timers | IDT entry encoding, PIC remap + full mask, PIT frequency/divisor math, all real and tested. No real exception handlers installed and `Idt::load()` is never called — `extern "x86-interrupt"` is nightly-only on this toolchain, and hand-written interrupt entry assembly isn't something to write without a way to verify it (no QEMU here). |
 | Scheduler | Real round-robin ready queue, fixed-capacity ring buffer, thoroughly tested including wraparound. |
 | Process/thread | Real creation, destruction, and state tracking, wired to the scheduler — creating a thread actually enqueues it. |
-| Syscalls | `ProcessCreate`, `ThreadCreate`, `ChannelCreate`, `EventCreate`, `HandleClose` are all real, dispatching to real kernel functions. |
+| Syscalls | `ProcessCreate`, `ThreadCreate`, `ChannelCreate`, `EventCreate`, `HandleClose` are all real, dispatching to real kernel functions, and all now go through a capability check first (**unverified** — see below). |
 | IPC | Real `Channel` (send/receive, backpressure, closed-channel handling) and `Event` (signal/clear) objects, each with a real table and syscall-reachable create/destroy. |
-| Security | Real `CapabilityRights` (bitflag composition, the `can_derive` narrowing invariant) and `SecurityLabel` (trust ordering), combined into `is_authorized`. Not yet wired to syscall dispatch — nothing is actually enforced against a real syscall yet, only available to call. |
+| Security | Real `CapabilityRights` (bitflag composition, the `can_derive` narrowing invariant) and `SecurityLabel` (trust ordering), combined into `is_authorized` — and now enforced: every syscall carries a `SyscallPolicy` (minimum label + required rights) and `dispatch_syscall_as` authorizes the caller's `SyscallContext` against it before any side effect, denying with `PermissionDenied`. What is missing is provenance, not enforcement: nothing populates a `SyscallContext` from hardware state (no trap handler, no current-thread concept), so callers pass it explicitly, and kernel objects carry no label of their own yet — the label check compares against the syscall's minimum, not the target object's trust level. (**unverified** — see below.) |
 | Handle registry | Real `object::HandleRegistry` mapping any `KernelObjectId` to its kind, letting `HandleClose` dispatch generically across object types. |
+
+**Unverified, pending a compile:** the capability enforcement in
+`syscall.rs` (`SyscallPolicy`, `SyscallContext`, `dispatch_syscall_as`,
+and its 8 new tests) has not been through `rustc`. It was written in an
+environment with no Rust toolchain, so the only checks it has passed are
+structural: brace/paren balance, and `tools/graph/validate.py` asserting
+that `adrian-kernel::syscall` really does now depend on
+`adrian-kernel::security` and that `is_authorized` has production
+callers outside its own module. Neither is a substitute for
+`cargo test -p adrian-kernel --features std`. Drop the two markers above
+once that passes.
 
 **Genuinely blocked, not just unstarted:** real exception handlers,
 context switching, a page-table mapper, and true bare-metal
@@ -135,6 +146,29 @@ code) — worth knowing before trusting its every flag without checking.
 Its cohesion-score flag was accurate, though, and drove the
 `pulse/src/lib.rs` module split. Output lives in `graphify-out/`
 (gitignored, regenerate with `graphify update .`).
+
+**That blind spot is fixed upstream as of graphify 0.9.52.** Its Rust
+extractor now walks `field_declaration` type nodes, tuple-struct
+positional fields, and enum-variant payloads, and `_rust_collect_type_refs`
+recurses through `reference_type`/`array_type`/`tuple_type`/`slice_type`
+and into `generic_type` arguments — which is exactly the shape
+`slots: [Option<(KernelObjectId, EventObject)>; CAPACITY]` needs. Its own
+source comments describe the old behaviour as a bug ("every enum-variant
+type reference was silently dropped"). Established by reading
+`graphify/extractors/rust.py` in a clone of 0.9.52, **not** by re-running
+it against this tree — worth re-confirming on the next real run.
+
+**`tools/graph/`** is a local, stdlib-only connection analyser written
+because graphify cannot be installed in every environment this repo gets
+worked on from (its runtime needs `networkx`, `rapidfuzz` and ~28
+tree-sitter grammar packages). `python3 tools/graph/render.py` writes
+`graph-out/graph.{json,html}` — a self-contained offline dashboard, no
+CDN, opens from `file://`. `python3 tools/graph/validate.py` checks the
+analyser against facts established by hand in this document before it
+existed, including a regression guard for the false positive above;
+13/13 passing. It is deliberately narrower than graphify: Rust only, no
+community detection, no cross-language support. Where they overlap they
+agree.
 
 ## The Axiom → Rian rename
 

@@ -127,11 +127,21 @@ pub const fn is_authorized(
 pub fn early_security_init() {
     // CapabilityRights and SecurityLabel have real logic -- rights
     // composition, the can_derive invariant, a trust ordering on
-    // labels, and now is_authorized combining both into one check --
-    // all proven correct by this module's own tests. No syscall
-    // policy integration yet: syscall.rs's dispatch doesn't call into
-    // this at all currently, so nothing is actually enforced against
-    // real syscalls yet, only available to call.
+    // labels, and is_authorized combining both into one check -- all
+    // proven correct by this module's own tests.
+    //
+    // is_authorized is now actually enforced: syscall.rs gives every
+    // syscall a SyscallPolicy (a minimum label plus required rights)
+    // and dispatch_syscall_as checks the caller's SyscallContext
+    // against it before performing any work, denying with
+    // PermissionDenied. What is still missing is not enforcement but
+    // *provenance*: nothing populates a SyscallContext from hardware
+    // state, because there is no privilege-transition trap handler and
+    // no current-thread concept to read a caller identity from, so the
+    // context is passed explicitly by whoever calls dispatch. Kernel
+    // objects also carry no label of their own yet -- the label half of
+    // the check compares against the syscall's minimum, not against the
+    // target object's own trust level.
 }
 
 #[cfg(test)]

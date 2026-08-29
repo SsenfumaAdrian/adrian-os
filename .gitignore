@@ -18,6 +18,14 @@ venv/
 # graphify (generated codebase analysis, regenerate with `graphify update .`)
 graphify-out/
 
+# graphify itself, cloned into the tree for reference. It carries its own
+# .git, so without this line git records it as an embedded repository and
+# `git status` nags about it on every commit.
+graphify/
+
+# Local connection analyser output (regenerate with `python3 tools/graph/render.py`)
+graph-out/
+
 # Editors / IDEs
 .vscode/
 .idea/
