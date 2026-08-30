@@ -1,0 +1,77 @@
+# CI is the compiler for this project (see PROGRESS.md "How this project
+# gets compiled"): no local environment currently both links executables
+# and runs tests, so these jobs are the source of truth for "does it
+# build / do the tests pass" on this remote. Mirrors
+# .github/workflows/rust.yml step for step so GitHub and GitLab verify
+# the same things; if one changes, change the other.
+
+stages:
+  - build
+  - test
+
+variables:
+  CARGO_TERM_COLOR: always
+  # Keep cargo's registry inside the project dir so it can be cached.
+  CARGO_HOME: $CI_PROJECT_DIR/.cargo
+
+.rust-base:
+  image: rust:latest
+  cache:
+    key: cargo-$CI_COMMIT_REF_SLUG
+    paths:
+      - .cargo/registry
+      - target
+  before_script:
+    - rustc --version && cargo --version
+
+rust-build:
+  extends: .rust-base
+  stage: build
+  script:
+    # Workspace build. This always compiles adrian-kernel WITH `std`,
+    # because rian/boot-image depends on it as features = ["std"] and
+    # resolver 2 unifies features across the invocation.
+    - cargo build --verbose
+    # The kernel's default no_std configuration -- the actual bare-metal
+    # config, including the `#[cfg(not(feature = "std"))]` panic handler
+    # -- would otherwise never be compiled at all, and bare-metal
+    # breakage could land while CI stayed green. `-p adrian-kernel`
+    # narrows the graph so boot-image drops out and `std` goes with it.
+    - cargo build -p adrian-kernel --verbose
+
+rust-test:
+  extends: .rust-base
+  stage: test
+  script:
+    # Runs every workspace test, including adrian-kernel's: boot-image's
+    # `features = ["std"]` dependency means the kernel's test harness
+    # gets std here without needing an explicit flag.
+    - cargo test --verbose
+
+# `dart analyze` is the cheapest thing that catches a total compile
+# break in the Dart packages: it type-checks without needing tests to
+# exist. Deliberately NOT running `dart test` yet -- canvas declares a
+# `test` dev-dependency but ships no test/ directory, so that step
+# would fail for a reason unrelated to code health. `--fatal-infos`
+# is intentional: these packages are small and new enough that keeping
+# them lint-clean from the start is cheap.
+dart-analyze:
+  stage: test
+  image: dart:stable
+  parallel:
+    matrix:
+      - PACKAGE: ["sdk/dart", "canvas"]
+  script:
+    - cd "$PACKAGE"
+    - dart pub get
+    - dart analyze --fatal-infos
+
+# The stdlib-only connection analyser's ground-truth checks (13 facts
+# established by hand in PROGRESS.md before the analyser existed,
+# including the regression guard for the isolated-node false positive).
+# Not in the GitHub workflow; cheap enough to run everywhere.
+graph-validate:
+  stage: test
+  image: python:3-slim
+  script:
+    - python3 tools/graph/validate.py
