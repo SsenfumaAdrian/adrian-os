@@ -4,20 +4,40 @@ Current, honest state of every subsystem. "Verified" means actually
 built and tested — via unit tests, hand-traced algorithms, official
 RFC test vectors, or an end-to-end `cargo run`, depending on what's
 appropriate for the piece. Nothing here is claimed as working without
-saying how it was checked. Last updated when `MockEntropySource` was
-gated behind the `test-utils` feature and Dart analysis was added to CI
-on both remotes.
+saying how it was checked. Last updated after the Sprint 1 boot-path
+refactor (boot trace, `InitOutcome`, bounded serial wait, panics removed
+from the init path).
+
+> **See also [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)** for the
+> ranked problem list, master roadmap, and per-sprint record. This file
+> stays the per-subsystem ledger; that one is the planning view. Where
+> they overlap, they must agree — if they disagree, one of them is stale.
 
 ## rian/kernel
 
 | Subsystem | Status |
 |---|---|
-| Boot path | Hosted dev-loop wrapper (`rian/boot-image`) crosses into the real kernel entry point. No bare-metal target build yet — this sandbox has no path to one (see Blockers). |
-| Kernel entry | Real: `BootContext` construction, validation, and the actual `kernel_entry` call, not a simulated stand-in. Exactly one entry point now: a dead `kernel_init()` wrapper in `lib.rs` and the no-context `init::early_kernel_init()` helper it was the only caller of have been removed (zero callers each, found by `tools/graph`). |
+| Boot path | Hosted dev-loop wrapper (`rian/boot-image`) crosses into the real kernel entry point, and now **returns**: it prints the boot trace and exits 0 only if init reported `Ready` *and* left a complete, in-order trace. That makes it a CI step (`cargo run -p adrian-boot-image`) rather than something you had to Ctrl+C. No bare-metal target build yet — this sandbox has no path to one (see Blockers). (**not yet compiled** — see below.) |
+| Boot observability | Real: `boot_trace::BootStage`/`BootTrace` record each of the 10 init stages in order, with `is_ordered` (catches duplicates and reordering), `is_complete`, and overflow counted rather than panicked on. Init takes its recorder as a parameter, so tests assert against a local trace instead of racing on the global. This is what gave the previously-untested nine-step init sequence coverage at all. (**not yet compiled**.) |
+| Kernel entry | Real: `BootContext` construction, validation, and the actual `kernel_entry` call, not a simulated stand-in. Exactly one entry point. `kernel_entry` now returns an `InitOutcome` rather than diverging; the bare-metal never-return form is the separately named `kernel_entry_and_halt`, so the halt decision belongs to the caller that knows whether it is firmware or a dev loop. A duplicated context validation with two different failure behaviors was removed. (**not yet compiled**.) |
 | Memory management | Physical bootstrap allocator (region classification, bump allocation, checked overflow arithmetic), x86_64 4-level page table entry encoding and address splitting, plus `SoftwarePageMapper`: a real table-walking mapper with `map_page`, `unmap_page` and `translate`, handling 1 GiB/2 MiB leaves and rejecting non-canonical addresses. The boot-time memory model is still **not** settled — the mapper takes a `phys_offset` and makes the caller guarantee a direct map of physical memory, so the open question became an explicit parameter rather than going away. Nothing in the boot path can supply that yet, so the mapper has no production callers, only tests. No TLB invalidation and no reclamation of emptied intermediate tables; both are unnecessary until CR3 points at these tables. |
 | Interrupts/timers | IDT entry encoding, PIC remap + full mask, PIT frequency/divisor math, all real and tested. No real exception handlers installed and `Idt::load()` is never called — `extern "x86-interrupt"` is nightly-only on this toolchain, and hand-written interrupt entry assembly isn't something to write without a way to verify it (no QEMU here). |
-| Scheduler | Real round-robin ready queue, fixed-capacity ring buffer, thoroughly tested including wraparound. |
-| Process/thread | Real creation, destruction, and state tracking, wired to the scheduler — creating a thread actually enqueues it. |
+| Serial debug | UART 16550 register programming, and — new — a **bounded** wait on the Transmitter Holding Register Empty bit before each byte. The THRE check was previously computed and discarded (`let _ = transmitter_ready();`), which is why early output arrived mangled. Bounded rather than the textbook unbounded loop because with no UART at 0x3F8 the status register never reports ready and the kernel would wedge on its first debug message. Timeouts are counted, not silently dropped. (**not yet compiled**.) |
+| Scheduler | Real round-robin ready queue, fixed-capacity ring buffer, thoroughly tested including wraparound. `early_sched_init`'s `debug_assert!(queue.is_empty())` was removed: it asserted a property of a global any earlier caller may legitimately have changed, and holding only in debug builds meant the boot path behaved differently by optimization level. |
+| Process/thread | Real creation, destruction, and state tracking, wired to the scheduler — creating a thread actually enqueues it, and if the ready queue is full the spawn is now **unwound** (thread removed, handle unregistered) instead of leaving a `Runnable` thread in no queue, which would have meant boot reporting success while nothing ever ran. Two `.expect()` calls were removed from the boot path; both misdiagnosed the only failure that can actually occur (a *full* table, a runtime condition, not a zero-capacity one). (**not yet compiled**.) |
+| Syscalls | `ProcessCreate`, `ThreadCreate`, `ChannelCreate`, `EventCreate`, `HandleClose` are all real, dispatching to real kernel functions, and all now go through a capability check first (**compiles; tests unrun** — see below). |
+| IPC | Real `Channel` (send/receive, backpressure, closed-channel handling) and `Event` (signal/clear) objects, each with a real table and syscall-reachable create/destroy. |
+| Security | Real `CapabilityRights` (bitflag composition, the `can_derive` narrowing invariant) and `SecurityLabel` (trust ordering), combined into `is_authorized` — and now enforced: every syscall carries a `SyscallPolicy` (minimum label + required rights) and `dispatch_syscall_as` authorizes the caller's `SyscallContext` against it before any side effect, denying with `PermissionDenied`. What is missing is provenance, not enforcement: nothing populates a `SyscallContext` from hardware state (no trap handler, no current-thread concept), so callers pass it explicitly, and kernel objects carry no label of their own yet — the label check compares against the syscall's minimum, not the target object's trust level. (**compiles; tests unrun** — see below.) |
+| Handle registry | Real `object::HandleRegistry` mapping any `KernelObjectId` to its kind, letting `HandleClose` dispatch generically across object types. |
+| Panics in kernel paths | None left in the init path. `halt_forever()` now parks the core with `hlt` on bare-metal x86_64 instead of spinning at 100% forever (hosted and non-x86_64 keep the spin form, since `hlt` faults outside ring 0), and the dead `panic_handler_placeholder()` — a second, fake panic path next to the real one — was deleted. (**not yet compiled**.) |
+
+**Sprint 1 is written but unverified.** Every row above marked
+**not yet compiled** was edited in an environment with no rustc, cargo,
+or Dart SDK. It has not been through a compiler in any configuration.
+CI on both remotes is what will say whether it builds; until a run is
+read, treat those rows as intent, not fact.
+
+
 | Syscalls | `ProcessCreate`, `ThreadCreate`, `ChannelCreate`, `EventCreate`, `HandleClose` are all real, dispatching to real kernel functions, and all now go through a capability check first (**compiles; tests unrun** — see below). |
 | IPC | Real `Channel` (send/receive, backpressure, closed-channel handling) and `Event` (signal/clear) objects, each with a real table and syscall-reachable create/destroy. |
 | Security | Real `CapabilityRights` (bitflag composition, the `can_derive` narrowing invariant) and `SecurityLabel` (trust ordering), combined into `is_authorized` — and now enforced: every syscall carries a `SyscallPolicy` (minimum label + required rights) and `dispatch_syscall_as` authorizes the caller's `SyscallContext` against it before any side effect, denying with `PermissionDenied`. What is missing is provenance, not enforcement: nothing populates a `SyscallContext` from hardware state (no trap handler, no current-thread concept), so callers pass it explicitly, and kernel objects carry no label of their own yet — the label check compares against the syscall's minimum, not the target object's trust level. (**compiles; tests unrun** — see below.) |
@@ -240,7 +260,11 @@ tree-sitter grammar packages). `python3 tools/graph/render.py` writes
 CDN, opens from `file://`. `python3 tools/graph/validate.py` checks the
 analyser against facts established by hand in this document before it
 existed, including a regression guard for the false positive above;
-13/13 passing. It is deliberately narrower than graphify: Rust only, no
+16/16 passing (as of Sprint 1 — the count rose from 13 because two new
+checks assert that boot observability is actually wired, and one hub
+check was split into a ranking half and a rank-independent reach half
+after `boot_trace` legitimately displaced `BootContext` from the top 8).
+It is deliberately narrower than graphify: Rust only, no
 community detection, no cross-language support. Where they overlap they
 agree.
 
@@ -290,7 +314,7 @@ this document should assume:
 
 ## Orphaned files (Cleaned Up)
 
-All six `.rs` scaffold files previously tracked outside the Cargo workspace (`rian/security/mod.rs`, `rian/ipc/mod.rs`, `rian/arch/arm64/mod.rs`, `rian/arch/x86_64/mod.rs`, `rian/mm/mod.rs`, `rian/sched/mod.rs`) have been cleaned up and removed. `tools/graph/validate.py` confirms 13/13 checks passing with zero orphaned files remaining outside the workspace.
+All six `.rs` scaffold files previously tracked outside the Cargo workspace (`rian/security/mod.rs`, `rian/ipc/mod.rs`, `rian/arch/arm64/mod.rs`, `rian/arch/x86_64/mod.rs`, `rian/mm/mod.rs`, `rian/sched/mod.rs`) have been cleaned up and removed. `tools/graph/validate.py` confirms 16/16 checks passing with zero orphaned files remaining outside the workspace.
 
 ## How this project gets compiled
 

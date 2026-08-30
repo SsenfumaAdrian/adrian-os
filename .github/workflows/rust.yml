@@ -31,6 +31,16 @@ jobs:
       run: cargo build -p adrian-kernel --verbose
     - name: Run tests
       run: cargo test --verbose
+    # The first end-to-end check that boot actually runs, as opposed to
+    # merely compiling. `adrian-boot-image` builds a real BootContext,
+    # calls the real `entry::kernel_entry`, and exits non-zero unless
+    # init reported Ready *and* left a complete, in-order boot trace
+    # behind. This is only a runnable step because init no longer ends in
+    # `halt_forever()` -- the wrapper used to have to be Ctrl+C'd.
+    # Not a bare-metal boot test: hosted port I/O is stubbed, so this
+    # verifies the init *sequence*, not the hardware bring-up.
+    - name: Boot test (hosted)
+      run: cargo run -p adrian-boot-image
 
   # Nothing checked the Dart side until now, so a total compile break in
   # sdk/dart or canvas could land on main with CI green. `dart analyze`

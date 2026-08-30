@@ -2,6 +2,7 @@
 
 pub mod arch;
 pub mod boot;
+pub mod boot_trace;
 pub mod config;
 pub mod debug;
 pub mod entry;

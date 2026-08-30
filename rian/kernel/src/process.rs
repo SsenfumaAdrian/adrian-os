@@ -157,9 +157,17 @@ pub fn destroy_process(id: KernelObjectId) -> bool {
 /// process -- the implicit process that owns kernel-mode execution
 /// before any user process exists. Returns its id so
 /// thread::early_thread_init can create a thread inside it.
-pub fn early_process_init() -> KernelObjectId {
+///
+/// This used to `.expect()`, on the reasoning that a failure here could
+/// only mean a zero-capacity table and therefore a build-time bug. That
+/// reasoning was wrong: `spawn` also returns `None` when the table is
+/// *full*, which is a runtime condition, so the panic message
+/// misdiagnosed the one case that can actually occur. It cannot occur
+/// during a real boot today (nothing runs before this to fill the
+/// table), but "cannot happen yet" is not a reason to keep a panic in
+/// the boot path -- `init` reports the failure instead.
+pub fn early_process_init() -> Result<KernelObjectId, KernelError> {
     create_process()
-        .expect("process table has zero capacity: a build-time bug, not a runtime condition")
 }
 
 #[cfg(test)]

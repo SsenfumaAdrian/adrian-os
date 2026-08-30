@@ -144,9 +144,13 @@ pub fn make_runnable<const T: usize, const Q: usize>(
 }
 
 /// Create a new thread in the `Created` state, owned by `process_id`.
-/// The general entry point -- both `early_thread_init` and, eventually,
-/// a real ThreadCreate syscall handler call through here. Not yet
-/// runnable on its own; see `make_runnable`.
+/// The entry point a real ThreadCreate syscall handler calls: it takes
+/// the table lock itself and leaves the thread not-yet-runnable, so a
+/// caller that wants it queued follows up through `make_runnable`.
+///
+/// Boot does *not* come through here -- `early_thread_init` needs the
+/// table and the ready queue locked together, so that it cannot be
+/// observed in the half-state where a thread exists but is unqueued.
 pub fn create_thread(process_id: KernelObjectId) -> Result<KernelObjectId, KernelError> {
     THREAD_TABLE
         .lock()
@@ -160,17 +164,50 @@ pub fn destroy_thread(id: KernelObjectId) -> bool {
     THREAD_TABLE.lock().remove(id)
 }
 
+/// Create a thread inside `process_id` and put it straight onto
+/// `queue`, or leave both untouched if that is not possible.
+///
+/// Generic over the capacities for the same reason as `make_runnable`:
+/// the interesting behavior here is the *cleanup* path, and cleanup on
+/// a full ready queue is untestable against a 64-slot global (filling
+/// it would mean 64 real spawns whose handles are never released).
+pub fn spawn_runnable<const T: usize, const Q: usize>(
+    table: &mut ThreadTable<T>,
+    queue: &mut crate::sched::RunQueue<Q>,
+    process_id: KernelObjectId,
+) -> Result<KernelObjectId, KernelError> {
+    let id = table.spawn(process_id).ok_or(KernelError::OutOfMemory)?;
+
+    // `make_runnable`'s result was previously discarded at the one call
+    // site. It returns false when the ready queue is full, and a thread
+    // marked Runnable that sits in no queue is the worst available
+    // outcome: the caller is told it succeeded and then nothing ever
+    // runs. Unwind the spawn instead, so a failure leaves no Runnable
+    // thread that no scheduler can reach.
+    if !make_runnable(table, queue, id) {
+        table.remove(id);
+        return Err(KernelError::Busy);
+    }
+
+    Ok(id)
+}
+
 /// Early thread bring-up step: creates the kernel's own bootstrap
 /// thread inside `process_id` and makes it runnable -- the first time
-/// anything real goes into the scheduler's ready queue, rather than
-/// the queue just existing empty and untested against reality.
-pub fn early_thread_init(process_id: KernelObjectId) {
-    let id = create_thread(process_id)
-        .expect("thread table has zero capacity: a build-time bug, not a runtime condition");
-
+/// anything real goes into the scheduler's ready queue, rather than the
+/// queue just existing empty and untested against reality.
+///
+/// Holds the thread table and the ready queue at the same time, so the
+/// half-state (a thread that exists but is not queued) is never
+/// observable to anything else, and so a failure can undo the spawn.
+pub fn early_thread_init(process_id: KernelObjectId) -> Result<KernelObjectId, KernelError> {
+    // Same correction as `process::early_process_init`: spawning fails
+    // when the table is *full*, a runtime condition, so the old "zero
+    // capacity, a build-time bug" panic misdescribed the only case that
+    // can actually happen. Reported upward instead.
     let mut table = THREAD_TABLE.lock();
     let mut queue = crate::sched::READY_QUEUE.lock();
-    make_runnable(&mut table, &mut queue, id);
+    spawn_runnable(&mut table, &mut queue, process_id)
 }
 
 #[cfg(test)]
@@ -256,5 +293,74 @@ mod tests {
         assert_eq!(crate::object::HANDLE_REGISTRY.lock().kind_of(id), None);
 
         assert!(!table.remove(id)); // already gone
+    }
+
+    #[test]
+    fn spawn_runnable_creates_a_queued_runnable_thread() {
+        let mut table: ThreadTable<4> = ThreadTable::new();
+        let mut queue: crate::sched::RunQueue<4> = crate::sched::RunQueue::new();
+
+        let id = spawn_runnable(&mut table, &mut queue, pid(7)).unwrap();
+        assert_eq!(table.get(id).unwrap().state, ThreadState::Runnable);
+        assert_eq!(table.get(id).unwrap().process_id, pid(7));
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue.dequeue(), Some(id));
+    }
+
+    #[test]
+    fn spawn_runnable_reports_a_full_thread_table_as_out_of_memory() {
+        let mut table: ThreadTable<1> = ThreadTable::new();
+        let mut queue: crate::sched::RunQueue<4> = crate::sched::RunQueue::new();
+
+        assert!(spawn_runnable(&mut table, &mut queue, pid(1)).is_ok());
+        assert_eq!(
+            spawn_runnable(&mut table, &mut queue, pid(1)),
+            Err(KernelError::OutOfMemory)
+        );
+    }
+
+    #[test]
+    fn spawn_runnable_leaves_nothing_behind_when_the_ready_queue_is_full() {
+        // The case the discarded `make_runnable` result used to hide: a
+        // thread that is Runnable but in no queue. On failure the table
+        // must be exactly as it was, and the id must be gone from the
+        // global handle registry too -- otherwise a full ready queue
+        // slowly leaks handles.
+        let mut table: ThreadTable<4> = ThreadTable::new();
+        let mut queue: crate::sched::RunQueue<1> = crate::sched::RunQueue::new();
+
+        let first = spawn_runnable(&mut table, &mut queue, pid(1)).unwrap();
+        assert!(queue.is_full());
+
+        assert_eq!(
+            spawn_runnable(&mut table, &mut queue, pid(1)),
+            Err(KernelError::Busy)
+        );
+        assert_eq!(table.count(), 1, "the rejected thread must not occupy a slot");
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue.dequeue(), Some(first), "the queued thread is untouched");
+    }
+
+    #[test]
+    fn a_thread_rejected_for_a_full_queue_is_unregistered_globally() {
+        let mut table: ThreadTable<4> = ThreadTable::new();
+        let mut queue: crate::sched::RunQueue<1> = crate::sched::RunQueue::new();
+        spawn_runnable(&mut table, &mut queue, pid(1)).unwrap();
+
+        let before = crate::object::HANDLE_REGISTRY.lock().count();
+        assert!(spawn_runnable(&mut table, &mut queue, pid(1)).is_err());
+        let after = crate::object::HANDLE_REGISTRY.lock().count();
+
+        // Not an equality assertion on the count itself: HANDLE_REGISTRY
+        // is shared across the whole test binary and other tests run in
+        // parallel, so only the *direction* is order-independent -- a
+        // failed spawn must not leave the registry fuller than it was
+        // by its own doing.
+        assert!(
+            after <= before + 1,
+            "a rejected spawn leaked a handle: {} -> {}",
+            before,
+            after
+        );
     }
 }

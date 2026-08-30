@@ -50,11 +50,37 @@ def main() -> int:
     #    is how a tool ends up disagreeing with reality: BootContext and
     #    Channel are depended *upon*, while dispatch_syscall depends on
     #    many things. Both are checked, each in its own sense.
-    top_depended = {r["name"] for r in graph["symbols"][:8]}
+    #
+    #    The window on this one was 8 and is now 12. Recording why, so
+    #    that widening a failing check reads as a corrected ground truth
+    #    rather than a silenced test: Sprint 1's `boot_trace` module
+    #    introduced `BootStage` (hub 70) and `record` (hub 35), both of
+    #    which are referenced more than `BootContext` (hub 30) and both
+    #    of which pushed it from rank 8 to rank 9. Nothing about
+    #    BootContext's own connectivity changed -- it still has 10
+    #    cross-module references. What changed is that the boot path
+    #    grew two new hubs above it, which is the intended outcome of
+    #    making boot observable, not a regression.
+    HUB_WINDOW = 12
+    top_depended = {r["name"] for r in graph["symbols"][:HUB_WINDOW]}
     check(
         "BootContext ranks among the most depended-on symbols",
         "BootContext" in top_depended,
-        f"top 8 were {sorted(top_depended)}",
+        f"top {HUB_WINDOW} were {sorted(top_depended)}",
+    )
+    # A rank window alone is a weak assertion: it can be satisfied by
+    # everything else getting smaller. The property the claim in
+    # PROGRESS.md actually cares about is *reach* -- that the
+    # firmware->kernel handoff type is depended on from several modules
+    # rather than being an implementation detail of one. That is
+    # rank-independent, so it is asserted separately, and the pair is a
+    # stronger check than the single top-8 test it replaces.
+    boot_context = by_name.get("BootContext")
+    check(
+        "BootContext is depended on from more than one module",
+        boot_context is not None and len(boot_context["referencing_modules"]) > 1,
+        "missing from the index" if boot_context is None
+        else f"referencing_modules={boot_context['referencing_modules']}",
     )
     top_connectors = {r["name"] for r in graph["connectors"][:5]}
     # The dispatch entry point split in two when capability enforcement
@@ -90,6 +116,31 @@ def main() -> int:
         authorized is not None and authorized["refs_cross_module"] > 0,
         "missing from the index" if authorized is None
         else f"refs_cross_module={authorized['refs_cross_module']} (must be > 0)",
+    )
+
+    # 2c. Boot observability is wired, not merely present. Sprint 1's
+    #     claim is that init *reports* what it did and that the hosted
+    #     wrapper *reads* that report -- so there must be an edge in from
+    #     init and an edge out to boot-image. A trace module that only
+    #     its own tests referenced would satisfy neither, and that is
+    #     precisely the failure mode this catches: boot_trace's symbols
+    #     now dominate the hub ranking above, so if they were internal
+    #     to their own module that ranking would be measuring nothing.
+    init_to_trace = any(
+        e["source"] == "adrian-kernel::init" and e["target"] == "adrian-kernel::boot_trace"
+        for e in graph["edges"]
+    )
+    check(
+        "init depends on the boot_trace module",
+        init_to_trace,
+        "no adrian-kernel::init -> adrian-kernel::boot_trace edge",
+    )
+    outcome = by_name.get("InitOutcome")
+    check(
+        "the hosted wrapper reads init's outcome",
+        outcome is not None and "adrian-boot-image" in outcome["referencing_modules"],
+        "missing from the index" if outcome is None
+        else f"referencing_modules={outcome['referencing_modules']}",
     )
 
     # 3. The regression guard. Each of these is used only as a field

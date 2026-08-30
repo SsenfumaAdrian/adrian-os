@@ -115,12 +115,22 @@ pub static READY_QUEUE: crate::sync::SpinLock<RunQueue<MAX_TASKS>> =
 
 /// Early scheduler bring-up step.
 ///
-/// Confirms the ready queue has a real static home and starts empty.
-/// There's nothing to enqueue yet -- task creation (process/thread
-/// model, roadmap step 6) doesn't exist, so an empty queue here is
-/// accurate, not a placeholder standing in for something more real.
-pub fn early_sched_init() {
-    debug_assert!(READY_QUEUE.lock().is_empty());
+/// Returns how many tasks are already queued, which is zero on a real
+/// boot: the queue is a `static` built by `RunQueue::new()`, so an
+/// empty queue at this point is guaranteed by construction rather than
+/// something worth asserting.
+///
+/// This used to be `debug_assert!(READY_QUEUE.lock().is_empty())`. That
+/// assertion was wrong in two ways. It asserted a property of a global
+/// that any *earlier* caller is entitled to have changed -- and now one
+/// does, because `init::run_init` can be entered more than once (the
+/// second entry legitimately finds the first boot's bootstrap thread
+/// still queued), so the assert would abort the second run. And it only
+/// held in debug builds, meaning the boot path behaved differently
+/// depending on optimization level, which is precisely the kind of
+/// divergence a kernel should not have.
+pub fn early_sched_init() -> usize {
+    READY_QUEUE.lock().len()
 }
 
 #[cfg(test)]
@@ -215,7 +225,28 @@ mod tests {
     }
 
     #[test]
-    fn global_ready_queue_starts_empty() {
-        assert!(READY_QUEUE.lock().is_empty());
+    fn the_global_ready_queue_is_usable_and_bounded_by_max_tasks() {
+        // This used to assert the global queue was *empty*. That was
+        // only true as long as nothing else in the test binary enqueued
+        // into it -- and `init`'s boot tests now do, via
+        // `thread::early_thread_init`. Since `cargo test` runs tests in
+        // parallel threads inside one process, the old assertion made
+        // execution order load-bearing and would have flaked.
+        //
+        // What is true no matter what ran first: the global is lockable
+        // and its capacity is MAX_TASKS. Emptiness at boot is a
+        // property of `RunQueue::new()`, checked in `new_queue_is_empty`
+        // against a local instance where it cannot be perturbed.
+        let queue = READY_QUEUE.lock();
+        assert!(queue.len() <= MAX_TASKS);
+        assert!(!queue.is_full() || queue.len() == MAX_TASKS);
+    }
+
+    #[test]
+    fn early_sched_init_reports_the_queue_depth_it_found() {
+        // Boot-order-independent for the same reason as above: it
+        // reports rather than asserts, so all this can pin is that the
+        // number it reports is a real depth and not, say, a capacity.
+        assert!(early_sched_init() <= MAX_TASKS);
     }
 }
