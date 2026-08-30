@@ -4,8 +4,9 @@ Current, honest state of every subsystem. "Verified" means actually
 built and tested — via unit tests, hand-traced algorithms, official
 RFC test vectors, or an end-to-end `cargo run`, depending on what's
 appropriate for the piece. Nothing here is claimed as working without
-saying how it was checked. Last updated alongside the Axiom → Rian
-rename.
+saying how it was checked. Last updated when `MockEntropySource` was
+gated behind the `test-utils` feature and Dart analysis was added to CI
+on both remotes.
 
 ## rian/kernel
 
@@ -113,15 +114,27 @@ Dependency Pins below); **key storage** (needs real persistent storage,
 none exists); and the actual **attestation/boot-chain usage** these
 primitives would eventually back.
 
-**Key generation exists but must not be used.** `SymmetricKey::generate`
-takes an `EntropyProvider`, and the only implementation of that trait in
-the crate is `MockEntropySource` — a `pub`, non-test-gated counter that
-fills a key with `seed, seed+1, seed+2, …`. Because `counter` is a `u8`,
-the entire keyspace is **256 keys**. It is there so `KeyEnvelope` could
-be tested; it is currently also the only thing a caller *can* pass, so
-the generation API is reachable in production with test-grade entropy and
-nothing stops it. Treat both as test scaffolding until a real entropy
-source exists. Tracked below under open decisions.
+**Key generation exists but currently has no provider to call it with —
+by design.** `SymmetricKey::generate` takes an `EntropyProvider`, and the
+only implementation of that trait in the crate is `MockEntropySource`, a
+counter that fills a key with `seed, seed+1, seed+2, …`. Because
+`counter` is a `u8` its entire keyspace is **256 keys**.
+
+It used to be `pub` and ungated, which made the generation API reachable
+from production code with test-grade entropy and nothing stopping it.
+It is now behind `#[cfg(any(test, feature = "test-utils"))]`, with
+`test-utils` off by default and enabled nowhere in this workspace. The
+consequence is deliberate: in a normal build `EntropyProvider` has **no
+implementors at all**, so `generate` type-checks but cannot be called.
+An API that is uncallable is a better state than one that can only be
+called wrongly, and it stays that way until a real entropy source
+exists. How keys actually get generated, rotated and stored is still
+open — see below.
+
+*Verification status: the gating is a `cfg` change plus a new Cargo
+feature, not yet through `rustc` here — CI settles whether `cargo build
+-p adrian-vault` (feature off) and `cargo test` (feature implied by
+`cfg(test)`) both still compile.*
 
 `KeyEnvelope` itself is sound where it counts: real ChaCha20-Poly1305,
 the domain tag genuinely passed as AAD (so a wrong tag fails), tag
@@ -169,14 +182,22 @@ bridge later" approach `rian/boot-image` used from its first commit.
 Scoped to match what the kernel actually supports — create/destroy
 only, since that's all that's syscall-reachable on the Rust side too.
 
-**Not compiler-verified.** No Dart SDK is available in this sandbox —
-checked both apt and GitHub releases, neither has it; Dart's actual
-distribution goes through Google's own infrastructure, outside this
-sandbox's allowed network list. Written carefully (checked bracket/
-string-literal balance mechanically, used only long-stable Dart
-idioms) but not run through `dart analyze` or `dart test`. Do that
-before trusting it further, ideally via Claude Code or another
-environment with a real Dart install.
+**Not compiler-verified locally, but CI now checks it.** No Dart SDK is
+available in this sandbox — checked both apt and GitHub releases, neither
+has it; Dart's actual distribution goes through Google's own
+infrastructure, outside this sandbox's allowed network list. The code was
+written carefully (bracket and string-literal balance checked
+mechanically, only long-stable Dart idioms used) but has never been run
+through a Dart toolchain here.
+
+That gap is now closed on the CI side rather than locally: both remotes
+run `dart pub get` + `dart analyze --fatal-infos` over `sdk/dart` and
+`canvas`, so a compile break can no longer land green. `dart test` is
+deliberately not run yet — `canvas` declares a `test` dev-dependency but
+ships no `test/` directory, so the step would fail for a reason unrelated
+to code health. **The first run of these jobs has not been read yet**, so
+"analyze-clean" is not yet a claim this document makes; it is a check that
+now exists.
 
 ## Tooling
 
@@ -250,17 +271,22 @@ this document should assume:
 - **`canvas`'s actual "Liquid Glass" visual language** — aesthetic
   direction. A first pass now exists (`LiquidGlassTheme` design tokens
   with `crystal`/`obsidian` presets, and a `GlassNode` element tree), but
-  it renders nothing: `canvas` is not in any workspace, not referenced by
-  the Dart SDK, and not built or analysed by CI. The direction itself is
-  still the owner's call.
+  it renders nothing: `canvas` is not in any workspace and is not
+  referenced by the Dart SDK. It is at least *analysed* by CI now, so it
+  can no longer break silently — but nothing consumes it. The direction
+  itself is still the owner's call.
 - **Real encryption key management** — `SymmetricKey::generate` exists,
-  but its only entropy source is `MockEntropySource` (256-key keyspace,
-  publicly reachable, not test-gated). How keys actually get generated,
-  rotated, and stored — and how the mock gets fenced off from production
-  in the meantime — is a design question in its own right.
-- **A Dart CI job** — nothing runs `dart analyze` or `dart test`. The
-  Rust workflow is the only CI, so a total Dart compile break in
-  `sdk/dart` or `canvas` would land green.
+  and its only entropy source, `MockEntropySource`, is now gated behind
+  the `test-utils` feature, so the mock is fenced off from production and
+  `generate` has no callable provider in a normal build. What remains a
+  design question is the part gating cannot answer: how keys actually get
+  generated, rotated, and stored, and where the real entropy comes from
+  on a machine with no OS services yet.
+- **Whether `dart test` should be a required check** — analysis runs now,
+  but tests do not. `sdk/dart` has a `test/` directory; `canvas` has none,
+  so turning the step on today would fail there for a reason unrelated to
+  code health. Either write `canvas` tests first or scope the step to
+  `sdk/dart` — a call worth making deliberately rather than by default.
 
 ## Orphaned files (Cleaned Up)
 
@@ -277,10 +303,12 @@ where you are:
 | Agent sandbox (Linux) | No | No rustc, no cargo, and no network to install them. |
 | Windows host, MSVC toolchain | **Libraries only** | `rustc.exe` runs fine. `cargo build -p adrian-kernel` succeeds in both feature configurations, because an `rlib` needs no linker at all. Anything that produces an executable — `cargo test`, or building `adrian-boot-image` — fails with `error: linker 'link.exe' not found`. The MSVC linker ships with Visual Studio Build Tools, not with rustup. |
 | Windows host, GNU toolchain | No | Installs, then refuses to execute: `An Application Control policy has blocked this file. (os error 4551)` — Smart App Control blocking a low-reputation unsigned binary. |
-| **GitHub Actions** | **Yes** | `.github/workflows/rust.yml`, `ubuntu-latest`, on every push to `main`. |
+| **GitHub Actions** | **Yes** | `.github/workflows/rust.yml`, `ubuntu-latest`, on every push to `main` and every PR. Two Rust jobs (workspace build + `no_std` kernel build, then `cargo test`) plus a Dart job running `dart analyze --fatal-infos` over `sdk/dart` and `canvas`. |
+| **GitLab CI** | **Yes** | `.gitlab-ci.yml` on the `gitlab` remote — mirrors the GitHub workflow step for step, and additionally runs `python3 tools/graph/validate.py`. Two remotes verifying the same things is redundancy, not duplication: if one is unavailable the other still answers "does it build". Keep them in sync; each file says so in a comment. |
 
 So **CI is the compiler for this project**, not a safety net on top of
-local builds. Read the Actions log before believing any Rust claim here.
+local builds. Read the Actions (or Pipelines) log before believing any
+Rust claim here.
 
 One subtlety that makes CI trustworthy for the kernel specifically. The
 workflow runs a bare `cargo test --verbose` with no `--features` flag,

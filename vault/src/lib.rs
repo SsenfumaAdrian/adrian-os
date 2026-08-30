@@ -19,7 +19,7 @@ pub enum VaultError {
 /// Interface for entropy sources (hardware RNG, bootloader seed, synthetic test source).
 ///
 /// **No production implementation of this trait exists yet.** The only
-/// implementor in the crate is [`MockEntropySource`], which is gated
+/// implementor in the crate is `MockEntropySource`, which is gated
 /// behind `cfg(test)` / the `test-utils` feature, so in a normal build
 /// this trait has no implementors at all and
 /// [`SymmetricKey::generate`] is uncallable. Real key generation is an
