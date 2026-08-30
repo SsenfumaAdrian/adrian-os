@@ -15,9 +15,17 @@
 # Conventions in force here, both deliberate:
 #   * Intel syntax -- `global_asm!` defaults to it on x86 and the manuals
 #     this code is checked against are written in it.
-#   * No `{` or `}` anywhere in this file. `global_asm!` parses braces as
-#     format arguments, and the alternative is `options(raw)` at the call
-#     site. Keeping braces out is the cheaper invariant to hold.
+#   * No curly-brace characters anywhere in this file, not even inside a
+#     comment. `global_asm!` parses them as format arguments, so an opening
+#     brace in a comment is a compile error in main.rs -- and the error is
+#     reported against the `include_str!` call site, not against the line
+#     here that caused it. This paragraph used to violate its own rule by
+#     quoting the two characters, which cost a CI round trip to find:
+#     `cargo build` failed with "invalid asm template string: expected
+#     closing brace" pointing at main.rs:27. The alternative is
+#     `options(raw)` at the call site; keeping the characters out is the
+#     cheaper invariant, and `image-build` now greps for them before it
+#     builds so the next violation names this file and its line number.
 
 # ---------------------------------------------------------------------
 # Constants

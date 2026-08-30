@@ -59,6 +59,18 @@ jobs:
     # rather than a custom JSON spec.
     - name: Add the bare-metal target
       run: rustup target add x86_64-unknown-none
+    # boot.s reaches the assembler through global_asm!(include_str!(...)),
+    # which parses curly braces as format arguments, so a brace anywhere in
+    # that file -- comments included -- is a compile error. rustc reports it
+    # against the include_str! call site and never names the offending line.
+    - name: Check boot.s holds the no-brace invariant
+      run: |
+        if grep -n '[{}]' rian/bare-metal/src/boot.s; then
+          echo "boot.s contains a curly brace at the line(s) above."
+          echo "global_asm! parses braces as format arguments; remove them or"
+          echo "switch the call site in main.rs to options(raw)."
+          exit 1
+        fi
     # cd first: rian/bare-metal/.cargo/config.toml carries the target, the
     # linker script and the code/relocation model, and cargo finds it by
     # walking up from the working directory. Building from the repo root

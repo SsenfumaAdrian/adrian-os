@@ -24,15 +24,26 @@ Everything this document said before today still rests on GitLab pipeline
 on commit `66bab0e`, which passed all six jobs in 1m34s — `rust-build`,
 `rust-test`, `boot-test`, `dart-analyze` (×2), `graph-validate`.
 
-Everything added today about `rian/bare-metal` is **not yet verified**: no
-`rustc` has compiled it and no machine has booted it. Its assembly and
-linker script were locally assembled and linked with GNU binutils as a
-proxy; `tools/image/`'s 28 checks were run against that proxy and shown
-falsifiable; and `tools/graph/validate.py` gained four checks (16 → 20) that
-guard the two properties of the crate no compiler can see. Those are real
-results about those artifacts — but they are not a Rust build and not a
-boot. The two CI jobs that would settle it (`image-build`, `image-boot`) are
-committed and have not run.
+`rian/bare-metal` is **partly verified, and the split is now precise
+rather than pessimistic.** `image-build` ran on commit `cd8d57b0` and
+failed at exit 101, but not before establishing two things that had only
+ever been arguments: the kernel compiles for `x86_64-unknown-none` (rustc
+1.98.0, clean), and it does so with `feature="default"` alone, so the
+workspace exclusion really does keep `std` from unifying onto it. What
+failed is `src/main.rs`, at macro expansion: `boot.s` contained a curly
+brace inside the very comment documenting that it must not, and
+`global_asm!` parses braces as format arguments. Fixed, with a grep guard
+added to both remotes because rustc reports that error against the
+`include_str!` call site and never names the offending line.
+
+Still not verified, and the failure stopped the build before any of it:
+LLVM's integrated assembler has not seen `boot.s`, `rust-lld` has not used
+`linker/rian.ld`, and nothing has booted — `image-boot` `needs:
+image-build`. The local evidence remains what it was: assembly and linking
+by GNU binutils as a *proxy*, `tools/image/`'s 28 checks run against that
+proxy and shown falsifiable, and `tools/graph/validate.py`'s four new
+checks (16 → 20) guarding the two properties of the crate that no compiler
+can see.
 
 This is the first CI log ever read for this project, and it retires the
 largest caveat this document used to carry. Until this run, every
@@ -133,13 +144,34 @@ to be over-read:
   aligned. The 32-bit machine encodings were hand-decoded, because
   `objdump` renders a `.code32` section of an ELF64 under 64-bit rules and
   its output for this file is misleading.
-- **`src/main.rs` and the kernel in its `x86_64-unknown-none`
-  configuration: `not yet verified`.** No `rustc` has seen either. Whether
-  `compiler_builtins` supplies the `memcpy`/`memset` the kernel needs, and
-  whether the image links under `rust-lld`, are open questions until
-  `image-build` runs.
-- **Boot: `not yet verified`.** There is no QEMU in any environment
-  available to this project outside CI.
+- **The kernel compiles for `x86_64-unknown-none`: verified in CI**, job
+  `image-build` on commit `cd8d57b0`, rustc 1.98.0. This is the first time
+  the kernel has been compiled for a bare-metal target at all — previously
+  the `no_std` configuration was only ever built for the host with
+  `--no-default-features`, which is a different thing. `adrian-kernel`
+  built clean, no warnings shown, with `-C panic=abort -C opt-level=3`.
+- **The workspace exclusion demonstrably works.** The `--verbose` rustc
+  line for `adrian-kernel` in that job reads `--cfg 'feature="default"'`
+  and nothing else: `std` did **not** unify onto the kernel. That was the
+  entire reason for excluding the crate, it was previously an argument from
+  how resolver 2 is documented to behave, and it is now an observation.
+- **`.cargo/config.toml` is found, and all four of its settings reach
+  rustc** — `--target x86_64-unknown-none`, `-C link-arg=-Tlinker/rian.ld`,
+  `-C code-model=small`, `-C relocation-model=static` all appear on the
+  command line in the job log. The mandatory `cd` works as described.
+- **`src/main.rs` does not compile yet** — `image-build` failed at exit 101
+  with `invalid asm template string: expected closing brace`, reported
+  against `main.rs:27`. Cause: `boot.s` contained a curly brace, in the
+  comment paragraph documenting the rule that it must not. Fixed, and
+  `image-build` now greps for braces before building, because rustc's
+  diagnostic names the `include_str!` call site and never the offending
+  line. Consequence for everything below it: LLVM's integrated assembler
+  has still not seen `boot.s`, `rust-lld` has still not used
+  `linker/rian.ld`, and whether `compiler_builtins` supplies the
+  `memcpy`/`memset` the kernel needs remains open — the build never
+  reached assembly, let alone linking.
+- **Boot: `not yet verified`.** `image-boot` did not run; it `needs:
+  image-build`.
 
 **Image verification tooling — `tools/image/`, verified as tooling.**
 `verify_shape.sh` asserts 16 properties of the linked ELF; `verify_boot.sh`
