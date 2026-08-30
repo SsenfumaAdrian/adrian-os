@@ -186,6 +186,40 @@ def main() -> int:
         f"got {summary['workspace_crates']}",
     )
 
+    # 5b. The bare-metal image is outside the workspace *on purpose*, and
+    #     that has to be asserted rather than merely arranged: as a member
+    #     it would inherit `std` from boot-image through resolver-2 feature
+    #     unification, silently, and still link. So the exclusion is a
+    #     correctness property, and this is the only check in the project
+    #     that can see it -- no Rust build can, because a build that got
+    #     this wrong succeeds.
+    check(
+        "the bare-metal image is not a workspace member",
+        summary["non_workspace_crates"] == ["adrian-bare-metal"],
+        f"non-workspace crates were {summary['non_workspace_crates']}",
+    )
+
+    # 5c. ...and it must still reach the kernel. The failure this guards
+    #     against is the image quietly becoming a stub: it is the one crate
+    #     with no tests of its own (`cargo test` would build it for the
+    #     host, which it does not link for), so nothing else here would
+    #     notice if `rian_main` stopped calling into the kernel. Three
+    #     edges, because main.rs uses three kernel modules and all three
+    #     are load-bearing: `boot` builds the BootContext, `debug` brings
+    #     the UART up before anything is said through it, `entry` is the
+    #     call that makes this an OS image rather than a boot stub.
+    image_edges = {
+        (e["source"], e["target"]) for e in graph["edges"]
+        if e["source"].startswith("adrian-bare-metal")
+    }
+    for target in ("adrian-kernel::boot", "adrian-kernel::debug",
+                   "adrian-kernel::entry"):
+        check(
+            f"bare-metal -> {target.split('::')[1]} edge is found",
+            ("adrian-bare-metal", target) in image_edges,
+            f"bare-metal edges were {sorted(image_edges)}",
+        )
+
     # 6. Orphaned scaffold files cleanup validation. All 6 documented
     #    scaffold files outside the Cargo workspace have been cleaned up.
     outside = set(summary["files_outside_workspace"])

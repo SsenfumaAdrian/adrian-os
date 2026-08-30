@@ -1,0 +1,44 @@
+# The bare-metal boot artifact: the ELF a bootloader actually loads.
+#
+# Deliberately its own workspace root (see the empty `[workspace]` table
+# below) rather than a member of the root workspace, and the root
+# `Cargo.toml` lists it under `exclude` to say the same thing from the
+# other side. Two reasons, both hard:
+#
+#   1. It is `#![no_main]` and only links for `x86_64-unknown-none`. As a
+#      workspace member, a plain `cargo build` at the repo root would try
+#      to build it for the host and fail on a missing `main`.
+#   2. Under resolver 2, feature unification is per-invocation across the
+#      whole selected graph. `rian/boot-image` pulls in `adrian-kernel`
+#      with `features = ["std"]`; if this crate shared an invocation with
+#      it, the kernel it links would silently acquire `std` -- exactly the
+#      configuration a bare-metal image must not have.
+[workspace]
+
+[package]
+name = "adrian-bare-metal"
+version = "0.1.0"
+edition = "2021"
+
+# Named `rian` rather than `adrian-bare-metal` so the artifact on disk is
+# the kernel image's name, not the wrapper crate's.
+[[bin]]
+name = "rian"
+path = "src/main.rs"
+
+[dependencies]
+# Default features on purpose: no `std`. This is the only place in the
+# repository that links the kernel in its real freestanding configuration
+# into something that could run on hardware.
+adrian-kernel = { path = "../kernel" }
+
+[profile.release]
+# `x86_64-unknown-none` already forces `panic = "abort"`; stated anyway
+# because a reader should not have to know the target spec to know there
+# is no unwinder here.
+panic = "abort"
+# Keep symbols. `tools/image/verify_shape.sh` asserts on `_start`,
+# `__bss_start`/`__bss_end` and `boot_pml4`, and a stripped image would
+# make those checks silently unrunnable rather than failing loudly.
+strip = false
+debug = false

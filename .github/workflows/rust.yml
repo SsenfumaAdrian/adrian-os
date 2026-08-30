@@ -42,6 +42,57 @@ jobs:
     - name: Boot test (hosted)
       run: cargo run -p adrian-boot-image
 
+  # The bare-metal image: build it, assert its shape, then boot it under
+  # QEMU. One job where .gitlab-ci.yml uses two, because splitting them
+  # here would mean upload-artifact/download-artifact just to hand one ELF
+  # between jobs -- machinery that buys nothing on a remote whose value is
+  # being an independent second opinion. The steps are the same steps, in
+  # the same order, so a failure still names which half broke.
+  image:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    # Prebuilt core and compiler_builtins, so no -Z build-std and no
+    # nightly. That is the whole reason the target is x86_64-unknown-none
+    # rather than a custom JSON spec.
+    - name: Add the bare-metal target
+      run: rustup target add x86_64-unknown-none
+    # cd first: rian/bare-metal/.cargo/config.toml carries the target, the
+    # linker script and the code/relocation model, and cargo finds it by
+    # walking up from the working directory. Building from the repo root
+    # would silently drop all four.
+    - name: Build the image
+      working-directory: rian/bare-metal
+      run: cargo build --release --verbose
+    # Between "it built" and "it booted". A bare-metal ELF has many ways to
+    # be unloadable that all produce a clean build: a DYN image nobody will
+    # relocate, a garbage-collected multiboot header, a misaligned PML4.
+    - name: Verify image shape
+      run: sh tools/image/verify_shape.sh rian/bare-metal/target/x86_64-unknown-none/release/rian
+    - name: Install QEMU
+      run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends qemu-system-x86
+    # `timeout` because the image ends in `halt_forever()` and is supposed
+    # to; `|| true` because timeout's 124 is the expected outcome, so the
+    # verdict comes from the log rather than the exit status.
+    - name: Boot the image
+      run: |
+        timeout --foreground 30 qemu-system-x86_64 \
+          -kernel rian/bare-metal/target/x86_64-unknown-none/release/rian \
+          -m 128M -display none -no-reboot -serial file:serial.log || true
+        echo "----- COM1 -----"
+        cat serial.log || echo "(no serial output at all)"
+        echo "----------------"
+        sh tools/image/verify_boot.sh serial.log
+    - name: Upload serial log
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: serial-log
+        path: serial.log
+        if-no-files-found: warn
+
   # Nothing checked the Dart side until now, so a total compile break in
   # sdk/dart or canvas could land on main with CI green. `dart analyze`
   # is the cheapest thing that would catch that: it type-checks without

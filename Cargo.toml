@@ -6,4 +6,24 @@ members = [
     "vault"
 ]
 
+# `rian/bare-metal` is deliberately not a member, and says so from its own
+# side too (it carries an empty `[workspace]` table). Listing it here is
+# what stops cargo from walking up and claiming it anyway. Two reasons,
+# both hard failures rather than preferences:
+#
+#   1. It is `#![no_main]` and links only for `x86_64-unknown-none`. As a
+#      member, a plain `cargo build` at the repo root would try to build it
+#      for the host and fail on a missing `main`.
+#   2. Under resolver 2, features unify across everything selected in one
+#      invocation. `rian/boot-image` depends on `adrian-kernel` with
+#      `features = ["std"]`, so a shared invocation would hand the
+#      bare-metal image a `std` kernel -- silently, and it would still
+#      link. That is the one configuration the image must never have.
+#
+# It is built by its own job (`image-build` in .gitlab-ci.yml), which cds
+# into the directory so the crate's `.cargo/config.toml` is found.
+exclude = [
+    "rian/bare-metal"
+]
+
 resolver = "2"

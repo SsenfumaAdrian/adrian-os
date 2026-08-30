@@ -15,12 +15,24 @@ verification level for every claim, using these terms only:
 
 There is deliberately no "works" or "done". Compiling is not working.
 
-**Last updated:** 2026-08-30, after the Sprint 1 boot-path refactor.
+**Last updated:** 2026-08-30, after adding the bare-metal image crate
+(roadmap step 2).
 
-**Verification status of this update: verified.** GitLab pipeline
+**Verification status of this update: mixed, and the split matters.**
+Everything this document said before today still rests on GitLab pipeline
 [#2803579010](https://gitlab.com/adrian-group9612635/adrian-os/-/pipelines)
-on commit `66bab0e` passed all six jobs in 1m34s — `rust-build`,
+on commit `66bab0e`, which passed all six jobs in 1m34s — `rust-build`,
 `rust-test`, `boot-test`, `dart-analyze` (×2), `graph-validate`.
+
+Everything added today about `rian/bare-metal` is **not yet verified**: no
+`rustc` has compiled it and no machine has booted it. Its assembly and
+linker script were locally assembled and linked with GNU binutils as a
+proxy; `tools/image/`'s 28 checks were run against that proxy and shown
+falsifiable; and `tools/graph/validate.py` gained four checks (16 → 20) that
+guard the two properties of the crate no compiler can see. Those are real
+results about those artifacts — but they are not a Rust build and not a
+boot. The two CI jobs that would settle it (`image-build`, `image-boot`) are
+committed and have not run.
 
 This is the first CI log ever read for this project, and it retires the
 largest caveat this document used to carry. Until this run, every
@@ -52,7 +64,9 @@ the kind of thing that gets copied forward without being re-derived.
 
 **Cargo workspace** (`resolver = "2"`), four members: `rian/kernel`
 (`adrian-kernel`), `rian/boot-image` (`adrian-boot-image`), `pulse`,
-`vault`. `canvas` sits outside any workspace.
+`vault`. `rian/bare-metal` (`adrian-bare-metal`) is a fifth Rust crate
+held deliberately *outside* the workspace via `exclude`; `canvas` sits
+outside any workspace.
 
 **What exists and is unit tested** — and, as of pipeline #2803579010,
 observed to pass rather than merely believed to: a spin lock with a real 8-thread ×
@@ -72,12 +86,85 @@ ten-stage, in-order, non-overflowed trace. So the init sequence is
 `boot tested (hosted)` — nine subsystem init functions genuinely execute,
 in the documented order, and say so.
 
-**The single most important fact about this repository:** there is no
-bare-metal build path. No linker script, no `.cargo/config.toml`, no
-custom target JSON, no assembly entry stub, no bootloader. `rian/halo/`
-is a directory, not a bootloader. So no code here has ever run in ring 0
-on any machine, real or emulated. Every "x86_64" module is currently
-type-checked hardware description, not exercised hardware bring-up.
+**The single most important fact about this repository:** no code here has
+ever run in ring 0 on any machine, real or emulated. Every "x86_64" module
+is currently type-checked hardware description, not exercised hardware
+bring-up.
+
+That fact is unchanged, but the reason for it has changed. Until
+2026-08-30 there was no bare-metal build path at all — no linker script,
+no `.cargo/config.toml`, no target configuration, no entry stub. There now
+is one: `rian/bare-metal` (see below). What is missing is no longer the
+path but the evidence, and the two must not be conflated. Nothing in that
+crate has been through `rustc`.
+
+A claim this document used to make and should not have: "`rian/halo/` is a
+directory, not a bootloader." `rian/halo/` does not exist. `halo/` is at
+the **repository root** and contains a single `README.md` describing an
+intended trust chain. The substance of the original point stands — there is
+no bootloader — but the path was wrong, and a wrong path in a status
+document is how a reader ends up verifying the wrong thing.
+
+**The bare-metal artifact — `rian/bare-metal`, `not yet verified`.** A
+fifth crate, deliberately outside the workspace. It contains a multiboot1
+entry stub (`src/boot.s`) that clears the bss, checks for long mode,
+identity-maps the first 1 GiB with 2 MiB pages, loads a flat 64-bit GDT and
+calls into Rust; a linker script placing the image at 1 MiB; a
+`.cargo/config.toml` selecting `x86_64-unknown-none` with
+`-C code-model=small -C relocation-model=static`; and `src/main.rs`, which
+translates the bootloader handoff into a `BootContext` and calls
+`entry::kernel_entry_and_halt`. It is excluded from the workspace because
+it is `#![no_main]` (a root `cargo build` would fail on a missing `main`)
+and because resolver-2 feature unification with `rian/boot-image` would
+silently give it a `std` kernel.
+
+Verification level, stated precisely, because this is the claim most likely
+to be over-read:
+
+- **`src/boot.s` assembles and `linker/rian.ld` links** — established
+  locally with GNU `as --64` and `ld -n -T`, against a stub `rian_main`.
+  That is evidence about assembly syntax, operand legality and linker
+  script correctness. It is **not** evidence that LLVM's integrated
+  assembler accepts the file, and it is not a Rust build.
+- **The linked layout is what it should be** — one `LOAD` segment at
+  VirtAddr = PhysAddr = 0x100000, `.bss` NOBITS of 0x13010 bytes,
+  `MemSiz − FileSiz` = 81,906, `_start` at 0x10000c immediately after the
+  12-byte header, `boot_pml4` 4 KiB aligned, `boot_stack_top` 16-byte
+  aligned. The 32-bit machine encodings were hand-decoded, because
+  `objdump` renders a `.code32` section of an ELF64 under 64-bit rules and
+  its output for this file is misleading.
+- **`src/main.rs` and the kernel in its `x86_64-unknown-none`
+  configuration: `not yet verified`.** No `rustc` has seen either. Whether
+  `compiler_builtins` supplies the `memcpy`/`memset` the kernel needs, and
+  whether the image links under `rust-lld`, are open questions until
+  `image-build` runs.
+- **Boot: `not yet verified`.** There is no QEMU in any environment
+  available to this project outside CI.
+
+**Image verification tooling — `tools/image/`, verified as tooling.**
+`verify_shape.sh` asserts 16 properties of the linked ELF; `verify_boot.sh`
+asserts 12 properties of the serial log. Both have been run and both were
+shown to be *falsifiable*, which is the only thing that makes a green run
+mean anything: each of the 28 checks was made to fail by perturbing its
+subject — discarding the multiboot section, moving the load address,
+splitting LMA from VMA, misaligning `boot_pml4` by one byte, shrinking the
+stack, stripping symbols, linking 32-bit, patching `e_type` to DYN,
+`ld -q`, and fourteen hand-built serial logs including an empty one, a
+reordered boot trace and a duplicated stage. That pass found a real bug: a
+`${pml4:-0}` fallback meant the PML4 alignment check silently *passed* on a
+stripped image, since 0 is 4 KiB aligned. Fixed to `:-1`.
+
+Both scripts were re-run end to end against a freshly rebuilt proxy after
+the fix — shape 16/16, boot 12/12 on both LF and CRLF logs — because the
+first pass predated the `:-1` change and a green result from a script that
+has since been edited is not evidence about the script that ships. That
+re-run also corrected three perturbations of my own that had looked like
+passing checks and were nothing of the kind: `verify_boot.sh` greps for the
+exact markers the kernel emits, and `panic.rs` emits `RIAN PANIC` with no
+colon, so a hand-written log saying `RIAN: PANIC:` left the panic check
+green while proving nothing. The lesson is about perturbation, not about the
+script: a perturbation has to be built from the string the source actually
+contains, or the falsifiability pass silently tests nothing.
 
 **How this project gets compiled.** No local environment both links
 executables and runs tests: MSVC can type-check libraries but cannot
@@ -95,7 +182,13 @@ the only place the `no_std` configuration gets compiled at all — under
 resolver 2, `boot-image`'s `features = ["std"]` unifies onto the kernel
 for any workspace-wide invocation), the full test suite, and, as of
 Sprint 1, a hosted boot test. It additionally runs `dart analyze` and
-`tools/graph/validate.py`.
+`tools/graph/validate.py`. Two further jobs are committed but have not yet
+run: `image-build` (adds the `x86_64-unknown-none` target, builds
+`rian/bare-metal`, runs `verify_shape.sh`, publishes the ELF) and
+`image-boot` (installs QEMU, boots the image with `-serial file:`, runs
+`verify_boot.sh`). Until they report, the bare-metal crate is
+`not yet verified` in this document's exact sense.
+
 
 ---
 
@@ -158,19 +251,37 @@ currently safe.
 
 Ranked by whether they block the next real capability.
 
-**P0 — no bare-metal build path at all.** Nothing produces a bootable
-artifact. Missing: a custom target (or `x86_64-unknown-none`, a stable
-tier-2 target that uses `rust-lld` and so needs no external linker —
-which matters given Smart App Control blocks the GNU toolchain), a
-`.cargo/config.toml`, an entry stub that sets up a stack before Rust
-code runs, a linker script, and a bootloader. Until this exists, every
-`arch::x86_64` module is unverifiable in principle, not just unverified.
+**P0 — the bare-metal build path exists but is unproven.** Downgraded
+today from "no bare-metal build path at all", and downgraded only in its
+description. `rian/bare-metal` now supplies every piece that was listed as
+missing: `x86_64-unknown-none` (chosen over a custom target JSON because it
+is stable, tier 2, and links with `rust-lld`, which matters given Smart App
+Control blocks the GNU toolchain), a `.cargo/config.toml`, an entry stub
+that establishes a stack before any Rust runs, and a linker script. Still
+missing: a bootloader of our own — the image is loaded by `qemu -kernel`
+via a multiboot1 header, and `halo/` remains a README.
+
+This stays P0 because the claim "every `arch::x86_64` module is
+unverifiable in principle" is retired only when a pipeline says the image
+builds and boots, and no pipeline has. Written-but-uncompiled is a
+different state from absent, and it is not a better one until the compiler
+agrees. Retire this entry when `image-build` and `image-boot` are green,
+and not before.
 
 **P0 — no GDT, no exception handlers, no loaded IDT.** `Idt::new()` is
 constructed and dropped; `Idt::load()` is never called. Any fault
 therefore escalates to a triple fault and resets the machine with no
 diagnostic. This is the first thing that must work after a boot exists,
 because without it every other bug presents as a silent reboot.
+
+The entry stub loads a flat 3-entry GDT, which is the minimum needed to
+leave compatibility mode and is not the GDT this entry is about: no TSS, no
+ring-3 descriptors, no IST stacks. And it makes this problem *more*
+pressing rather than less — the image now has a path to a real fault on
+real silicon, and no way to say anything about it when one arrives.
+`verify_boot.sh`'s "the serial log is not empty" check exists precisely
+because a triple fault during bring-up is the one failure that produces no
+output at all.
 
 **P1 — the bootstrap allocator is seeded with nothing.** `early_mm_init(&[])`
 passes an empty region slice, because there is no firmware memory map to
@@ -217,6 +328,12 @@ grouped by subsystem.
 2. **Bare-metal artifact** — `x86_64-unknown-none`, entry stub, linker
    script, minimal bootloader; QEMU target in CI. First step that
    produces `boot tested (bare metal)` as an achievable verification level.
+   *(Written 2026-08-30 as `rian/bare-metal` plus `tools/image/`; **not yet
+   verified** — awaiting the `image-build` and `image-boot` jobs. "Minimal
+   bootloader" was descoped to a multiboot1 header loaded by `qemu -kernel`,
+   which is a deliberate narrowing: writing a bootloader and booting a
+   kernel are two unverified things, and doing both at once means a failure
+   cannot say which one broke. `halo/` is where a real one goes.)*
 3. **Fault survivability** — GDT, a real `'static` IDT, exception
    handlers that print a diagnostic. Turns crashes into messages.
 4. **Real memory map** — firmware/Halo hands over regions; the allocator
@@ -324,3 +441,105 @@ the hosted boot ran end to end):
 because there is still nothing to boot. Sprint 1 makes the boot sequence
 *legible* — and pipeline #2803579010 proves it is legible in practice and
 not merely in intent. Step 2 of the roadmap is what makes it *real*.
+
+---
+
+## F. Roadmap step 2 — the bare-metal artifact
+
+**Status: written, not yet verified.** Read section A's verification
+breakdown before citing anything here. Nothing below has been compiled by
+`rustc` or booted by anything.
+
+**Goal.** Produce the ELF a bootloader loads, so that `boot tested (bare
+metal)` stops being a level this project cannot reach. Sprint 1 made init
+report on itself; that reporting is worth having only if there is a machine
+to report from.
+
+**Delivered.**
+
+- **`rian/bare-metal/src/boot.s`.** Multiboot1 header; bss clear with `rep
+  stosb` before the stack — which lives inside the bss — is claimed; the
+  handoff parked in reserved slots across the mode switch; a CPUID extended-
+  leaf and long-mode check with single-character COM1 diagnostics on
+  failure; an identity map of the first 1 GiB using 2 MiB pages across three
+  fixed 4 KiB tables (no allocator needed, which matters because
+  `early_mm_init(&[])` still has nothing); CR4.PAE → EFER.LME → CR0.PG in
+  that order; a flat 3-entry GDT; and `retf` into a 64-bit code segment.
+- **`linker/rian.ld`.** Header first and `KEEP()`-ed, image at 1 MiB,
+  `__bss_start`/`__bss_end` exported, `.got`/`.got.plt` placed rather than
+  discarded so that their ever being non-empty is visible instead of
+  silent, unwind and note sections discarded.
+- **`.cargo/config.toml`.** `x86_64-unknown-none`, the linker script, and
+  `-C code-model=small -C relocation-model=static` — the target's defaults
+  assume a higher-half relocatable kernel, and a DYN image with nobody to
+  apply its relocations is one of the failure modes that builds cleanly.
+- **`src/main.rs`.** `rian_main`, the UART brought up before anything is
+  said through it, a handoff report, and the call to
+  `entry::kernel_entry_and_halt`. `handoff_label` is split out as a pure
+  `const fn` so there is a return value something could assert on.
+- **Excluded from the workspace,** from both sides. Reasons in section A;
+  the cost is that root `cargo build` does not cover it, which is why
+  `image-build` exists.
+- **`tools/image/verify_shape.sh`** — 16 assertions on the linked ELF,
+  between "it built" and "it booted". Every way a bare-metal image can be
+  unloadable is silent: a DYN image, a garbage-collected multiboot header, a
+  load address the loader will not honour, a PML4 that lost its alignment.
+  POSIX `sh` over `readelf` and `od` on purpose — those exist in every CI
+  image that can build Rust; `llvm-tools` does not.
+- **`tools/image/verify_boot.sh`** — 12 assertions on the serial log,
+  including the one worth having: the ten boot stages compared *as an
+  ordered sequence*, so a duplicate, an omission and a reorder are all
+  caught by one comparison. Reads a log rather than a QEMU exit code
+  because the image contains no `isa-debug-exit` write, and it should not:
+  a port write whose only purpose is to tell a harness the answer is
+  test-only code in the artifact that ships.
+- **CI, both remotes.** `image-build` and `image-boot` on GitLab, split so
+  a failure names which half broke; one combined `image` job on GitHub,
+  where splitting would mean artifact upload/download machinery on a remote
+  that cannot run anyway.
+
+**Verified locally, with the method stated.** There is no `rustc` and no
+QEMU in the environment this was written in, so the honest boundary is:
+`boot.s` assembles under GNU `as --64` and links under `ld -n -T rian.ld`
+against a stub `rian_main`, producing exactly the intended layout (one LOAD
+at VirtAddr = PhysAddr = 0x100000, `MemSiz − FileSiz` = 81,906, `_start` at
+0x10000c, `boot_pml4` 4 KiB aligned, `boot_stack_top` 16-byte aligned), and
+`verify_shape.sh` passes 16/16 against it. GNU `as` is a *proxy* for LLVM's
+integrated assembler, not the same assembler. The 32-bit encodings were
+hand-decoded because `objdump` renders a `.code32` section of an ELF64
+under 64-bit rules and its output for this file is actively misleading.
+
+**Both verification scripts were shown to be falsifiable** — all 28 checks,
+each turned red by perturbing its own subject, listed in the header comment
+of each script. This found one real bug (a `${pml4:-0}` fallback made the
+PML4 alignment check pass on a stripped image, since 0 is 4 KiB aligned)
+and one useful non-result: `ld -shared` on this image fails with
+`R_X86_64_32 against __bss_start ... recompile with -fPIC`, which means
+`relocation-model=static` is not a preference the linker tolerates but a
+requirement the image cannot be built without.
+
+**The connection analyser gained four checks, 16 → 20**, and they exist
+because two properties of this crate are invisible to every other form of
+verification the project has. The first is the workspace exclusion: a build
+that gets it wrong *succeeds*, handing the image a `std` kernel through
+resolver-2 feature unification, so no `cargo` invocation can report it and
+`validate.py` asserting `non_workspace_crates == ["adrian-bare-metal"]` is
+the only check in the tree that can see it. The second is that this is the
+one crate with no tests of its own, so nothing would notice if `rian_main`
+quietly stopped calling into the kernel; three edge assertions
+(`adrian-bare-metal → adrian-kernel::boot / ::debug / ::entry`, matching the
+three modules `main.rs` actually imports and all three load-bearing) close
+that. All four were confirmed falsifiable by six perturbations of a throwaway
+copy of the tree: promoting the crate to a workspace member turned the
+exclusion check red, removing each kernel import in turn turned exactly its
+own edge check red, reducing `main.rs` to a stub that calls nothing turned all
+three red, and deleting the crate turned all four red.
+
+**Not delivered.** No IDT, TSS or exception handler, so any fault from
+`rian_main` onward is a triple fault that resets the machine and truncates
+the serial log — that is step 3 and it is the next thing that should exist.
+The multiboot memory map is requested by the header and not parsed, so
+`entry_count` stays 0 — step 4. No framebuffer. No tests inside the crate,
+because `cargo test` would build it for the host and it does not link for
+the host; `tools/image/` is where its tests live instead.
+

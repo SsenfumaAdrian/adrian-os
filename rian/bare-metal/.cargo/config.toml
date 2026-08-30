@@ -1,0 +1,36 @@
+# Build configuration for the bare-metal artifact.
+#
+# Discovered by walking up from the current directory, so every command
+# in this crate must be run from `rian/bare-metal/` (CI does `cd` first).
+# Placed here rather than at the repository root on purpose: a root
+# `.cargo/config.toml` setting `build.target` would retarget the entire
+# workspace, including the hosted test suite.
+
+[build]
+# `x86_64-unknown-none` is a stable tier-2 target, so `core` and
+# `compiler_builtins` ship prebuilt (`rustup target add
+# x86_64-unknown-none`) and there is no need for `-Z build-std`. It links
+# with `rust-lld`, which is the decisive property here: the Windows host
+# this project is developed on cannot use the GNU toolchain (Smart App
+# Control blocks it) and MSVC's linker cannot produce ELF. A target that
+# carries its own linker is the only one that can be built in both places.
+target = "x86_64-unknown-none"
+
+[target.x86_64-unknown-none]
+rustflags = [
+    # The layout is not negotiable for a multiboot image: the header must
+    # be inside the first 8 KiB of the file and the load address must be
+    # somewhere the loader will place it. Both are the linker script's job.
+    "-C", "link-arg=-Tlinker/rian.ld",
+
+    # Override two target defaults that assume a higher-half, relocatable
+    # kernel. `x86_64-unknown-none` defaults to the `kernel` code model
+    # (addresses in the top 2 GiB) and to position-independent
+    # executables; this image is linked non-relocatable at 1 MiB, which is
+    # in the low 2 GiB, so it wants `small` and `static`. Getting this
+    # wrong shows up as relocation-truncation errors at link time, or as
+    # an ELF of type DYN carrying dynamic relocations no bootloader will
+    # apply -- which is why `tools/image/verify_shape.sh` asserts on both.
+    "-C", "code-model=small",
+    "-C", "relocation-model=static",
+]

@@ -89,3 +89,91 @@ graph-validate:
   image: python:3-slim
   script:
     - python3 tools/graph/validate.py
+
+# ---------------------------------------------------------------------
+# The bare-metal image
+# ---------------------------------------------------------------------
+#
+# Two jobs rather than one, deliberately. They fail for entirely different
+# reasons -- one means the freestanding target does not build, the other
+# means the machine does not come up -- and a single job would report both
+# as "image broken" and leave the bisect to a human. Splitting them also
+# means the boot test cannot mask a build regression by never running.
+#
+# Neither job extends `.rust-base`: its cache points at the root `target/`,
+# which this crate does not use (it is outside the workspace and builds
+# into `rian/bare-metal/target/`).
+
+image-build:
+  stage: build
+  image: rust:latest
+  cache:
+    key: image-$CI_COMMIT_REF_SLUG
+    paths:
+      - .cargo/registry
+      - rian/bare-metal/target
+  script:
+    # readelf and od are what verify_shape.sh is written against, in
+    # preference to llvm-tools, precisely because the Rust image already
+    # has them. Asserted rather than assumed: if that ever stops being
+    # true the failure should name the missing tool, not produce sixteen
+    # confusing check failures.
+    - readelf --version | head -1
+    - od --version | head -1
+    - rustc --version && cargo --version
+    # Prebuilt core and compiler_builtins for the target, so no -Z
+    # build-std and no nightly. This is the whole reason the target is
+    # x86_64-unknown-none rather than a custom JSON spec.
+    - rustup target add x86_64-unknown-none
+    # cd first: the crate's .cargo/config.toml carries the target, the
+    # linker script and the code/relocation model, and cargo finds it by
+    # walking up from the working directory. Building from the repo root
+    # would silently drop all four settings.
+    - cd rian/bare-metal
+    - cargo build --release --verbose
+    - cd "$CI_PROJECT_DIR"
+    - sh tools/image/verify_shape.sh rian/bare-metal/target/x86_64-unknown-none/release/rian
+  artifacts:
+    name: rian-image-$CI_COMMIT_SHORT_SHA
+    paths:
+      - rian/bare-metal/target/x86_64-unknown-none/release/rian
+    expire_in: 1 week
+
+# The first test in this project that runs kernel code on a CPU in ring 0
+# rather than in a hosted process. `boot-test` above verifies the init
+# *sequence*; this verifies the bring-up underneath it -- bss cleared,
+# stack established, long mode entered, UART programmed from scratch --
+# none of which the hosted path exercises even in principle.
+image-boot:
+  stage: test
+  image: rust:latest
+  needs: ["image-build"]
+  script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends qemu-system-x86
+    # -kernel takes the multiboot1 image directly, which is why the header
+    # is multiboot1: multiboot2 would need GRUB and an ISO built with
+    # xorriso, i.e. two more tools between a commit and a boot test.
+    #
+    # `timeout` because the image ends in `halt_forever()` and is supposed
+    # to: a kernel that exits on its own is a kernel with test-only code in
+    # it. `|| true` because timeout's 124 is the expected outcome, so the
+    # verdict has to come from the log, not the exit status.
+    # -display none and -no-reboot so a triple fault stays dead and visible
+    # instead of resetting into a boot loop that eventually times out
+    # looking exactly like a hang.
+    - >
+      timeout --foreground 30 qemu-system-x86_64
+      -kernel rian/bare-metal/target/x86_64-unknown-none/release/rian
+      -m 128M -display none -no-reboot -serial file:serial.log || true
+    # Print it before asserting on it. When this job fails the log is the
+    # entire diagnosis, and a failed assertion that swallowed its input
+    # would send the next person back to CI for a second run.
+    - echo "----- COM1 -----"
+    - cat serial.log || echo "(no serial output at all)"
+    - echo "----------------"
+    - sh tools/image/verify_boot.sh serial.log
+  artifacts:
+    when: always
+    paths:
+      - serial.log
+    expire_in: 1 week
