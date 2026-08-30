@@ -17,60 +17,54 @@ from the init path).
 
 | Subsystem | Status |
 |---|---|
-| Boot path | Hosted dev-loop wrapper (`rian/boot-image`) crosses into the real kernel entry point, and now **returns**: it prints the boot trace and exits 0 only if init reported `Ready` *and* left a complete, in-order trace. That makes it a CI step (`cargo run -p adrian-boot-image`) rather than something you had to Ctrl+C. No bare-metal target build yet — this sandbox has no path to one (see Blockers). (**not yet compiled** — see below.) |
-| Boot observability | Real: `boot_trace::BootStage`/`BootTrace` record each of the 10 init stages in order, with `is_ordered` (catches duplicates and reordering), `is_complete`, and overflow counted rather than panicked on. Init takes its recorder as a parameter, so tests assert against a local trace instead of racing on the global. This is what gave the previously-untested nine-step init sequence coverage at all. (**not yet compiled**.) |
-| Kernel entry | Real: `BootContext` construction, validation, and the actual `kernel_entry` call, not a simulated stand-in. Exactly one entry point. `kernel_entry` now returns an `InitOutcome` rather than diverging; the bare-metal never-return form is the separately named `kernel_entry_and_halt`, so the halt decision belongs to the caller that knows whether it is firmware or a dev loop. A duplicated context validation with two different failure behaviors was removed. (**not yet compiled**.) |
+| Boot path | Hosted dev-loop wrapper (`rian/boot-image`) crosses into the real kernel entry point, and now **returns**: it prints the boot trace and exits 0 only if init reported `Ready` *and* left a complete, in-order trace. That makes it a CI step (`cargo run -p adrian-boot-image`) rather than something you had to Ctrl+C. No bare-metal target build yet — this sandbox has no path to one (see Blockers). (**boot tested (hosted)** — pipeline #2803579010.) |
+| Boot observability | Real: `boot_trace::BootStage`/`BootTrace` record each of the 10 init stages in order, with `is_ordered` (catches duplicates and reordering), `is_complete`, and overflow counted rather than panicked on. Init takes its recorder as a parameter, so tests assert against a local trace instead of racing on the global. This is what gave the previously-untested nine-step init sequence coverage at all. (**unit tested** — pipeline #2803579010.) |
+| Kernel entry | Real: `BootContext` construction, validation, and the actual `kernel_entry` call, not a simulated stand-in. Exactly one entry point. `kernel_entry` now returns an `InitOutcome` rather than diverging; the bare-metal never-return form is the separately named `kernel_entry_and_halt`, so the halt decision belongs to the caller that knows whether it is firmware or a dev loop. A duplicated context validation with two different failure behaviors was removed. (**unit tested** — pipeline #2803579010.) |
 | Memory management | Physical bootstrap allocator (region classification, bump allocation, checked overflow arithmetic), x86_64 4-level page table entry encoding and address splitting, plus `SoftwarePageMapper`: a real table-walking mapper with `map_page`, `unmap_page` and `translate`, handling 1 GiB/2 MiB leaves and rejecting non-canonical addresses. The boot-time memory model is still **not** settled — the mapper takes a `phys_offset` and makes the caller guarantee a direct map of physical memory, so the open question became an explicit parameter rather than going away. Nothing in the boot path can supply that yet, so the mapper has no production callers, only tests. No TLB invalidation and no reclamation of emptied intermediate tables; both are unnecessary until CR3 points at these tables. |
 | Interrupts/timers | IDT entry encoding, PIC remap + full mask, PIT frequency/divisor math, all real and tested. No real exception handlers installed and `Idt::load()` is never called — `extern "x86-interrupt"` is nightly-only on this toolchain, and hand-written interrupt entry assembly isn't something to write without a way to verify it (no QEMU here). |
-| Serial debug | UART 16550 register programming, and — new — a **bounded** wait on the Transmitter Holding Register Empty bit before each byte. The THRE check was previously computed and discarded (`let _ = transmitter_ready();`), which is why early output arrived mangled. Bounded rather than the textbook unbounded loop because with no UART at 0x3F8 the status register never reports ready and the kernel would wedge on its first debug message. Timeouts are counted, not silently dropped. (**not yet compiled**.) |
+| Serial debug | UART 16550 register programming, and — new — a **bounded** wait on the Transmitter Holding Register Empty bit before each byte. The THRE check was previously computed and discarded (`let _ = transmitter_ready();`), which is why early output arrived mangled. Bounded rather than the textbook unbounded loop because with no UART at 0x3F8 the status register never reports ready and the kernel would wedge on its first debug message. Timeouts are counted, not silently dropped. (**unit tested** — pipeline #2803579010.) |
 | Scheduler | Real round-robin ready queue, fixed-capacity ring buffer, thoroughly tested including wraparound. `early_sched_init`'s `debug_assert!(queue.is_empty())` was removed: it asserted a property of a global any earlier caller may legitimately have changed, and holding only in debug builds meant the boot path behaved differently by optimization level. |
-| Process/thread | Real creation, destruction, and state tracking, wired to the scheduler — creating a thread actually enqueues it, and if the ready queue is full the spawn is now **unwound** (thread removed, handle unregistered) instead of leaving a `Runnable` thread in no queue, which would have meant boot reporting success while nothing ever ran. Two `.expect()` calls were removed from the boot path; both misdiagnosed the only failure that can actually occur (a *full* table, a runtime condition, not a zero-capacity one). (**not yet compiled**.) |
-| Syscalls | `ProcessCreate`, `ThreadCreate`, `ChannelCreate`, `EventCreate`, `HandleClose` are all real, dispatching to real kernel functions, and all now go through a capability check first (**compiles; tests unrun** — see below). |
+| Process/thread | Real creation, destruction, and state tracking, wired to the scheduler — creating a thread actually enqueues it, and if the ready queue is full the spawn is now **unwound** (thread removed, handle unregistered) instead of leaving a `Runnable` thread in no queue, which would have meant boot reporting success while nothing ever ran. Two `.expect()` calls were removed from the boot path; both misdiagnosed the only failure that can actually occur (a *full* table, a runtime condition, not a zero-capacity one). (**unit tested** — pipeline #2803579010.) |
+| Syscalls | `ProcessCreate`, `ThreadCreate`, `ChannelCreate`, `EventCreate`, `HandleClose` are all real, dispatching to real kernel functions, and all now go through a capability check first (**unit tested** — pipeline #2803579010). |
 | IPC | Real `Channel` (send/receive, backpressure, closed-channel handling) and `Event` (signal/clear) objects, each with a real table and syscall-reachable create/destroy. |
-| Security | Real `CapabilityRights` (bitflag composition, the `can_derive` narrowing invariant) and `SecurityLabel` (trust ordering), combined into `is_authorized` — and now enforced: every syscall carries a `SyscallPolicy` (minimum label + required rights) and `dispatch_syscall_as` authorizes the caller's `SyscallContext` against it before any side effect, denying with `PermissionDenied`. What is missing is provenance, not enforcement: nothing populates a `SyscallContext` from hardware state (no trap handler, no current-thread concept), so callers pass it explicitly, and kernel objects carry no label of their own yet — the label check compares against the syscall's minimum, not the target object's trust level. (**compiles; tests unrun** — see below.) |
+| Security | Real `CapabilityRights` (bitflag composition, the `can_derive` narrowing invariant) and `SecurityLabel` (trust ordering), combined into `is_authorized` — and now enforced: every syscall carries a `SyscallPolicy` (minimum label + required rights) and `dispatch_syscall_as` authorizes the caller's `SyscallContext` against it before any side effect, denying with `PermissionDenied`. What is missing is provenance, not enforcement: nothing populates a `SyscallContext` from hardware state (no trap handler, no current-thread concept), so callers pass it explicitly, and kernel objects carry no label of their own yet — the label check compares against the syscall's minimum, not the target object's trust level. (**unit tested** — pipeline #2803579010.) |
 | Handle registry | Real `object::HandleRegistry` mapping any `KernelObjectId` to its kind, letting `HandleClose` dispatch generically across object types. |
-| Panics in kernel paths | None left in the init path. `halt_forever()` now parks the core with `hlt` on bare-metal x86_64 instead of spinning at 100% forever (hosted and non-x86_64 keep the spin form, since `hlt` faults outside ring 0), and the dead `panic_handler_placeholder()` — a second, fake panic path next to the real one — was deleted. (**not yet compiled**.) |
+| Panics in kernel paths | None left in the init path. `halt_forever()` now parks the core with `hlt` on bare-metal x86_64 instead of spinning at 100% forever (hosted and non-x86_64 keep the spin form, since `hlt` faults outside ring 0), and the dead `panic_handler_placeholder()` — a second, fake panic path next to the real one — was deleted. (**unit tested** — pipeline #2803579010.) |
 
-**Sprint 1 is written but unverified.** Every row above marked
-**not yet compiled** was edited in an environment with no rustc, cargo,
-or Dart SDK. It has not been through a compiler in any configuration.
-CI on both remotes is what will say whether it builds; until a run is
-read, treat those rows as intent, not fact.
+**Sprint 1 is verified.** GitLab pipeline
+[#2803579010](https://gitlab.com/adrian-group9612635/adrian-os/-/pipelines)
+on commit `66bab0e` passed all six jobs in 1m34s: `rust-build`,
+`rust-test`, `boot-test`, `dart-analyze` (×2), `graph-validate`.
+
+This was the first CI log ever read for this project, and it is worth
+being precise about what it did and did not settle. It settled that all
+218 `#[test]` functions (168 kernel, 31 pulse, 19 vault) compile and
+pass; that the kernel builds in **both** feature configurations, the
+`no_std` one included, which only the kernel-alone job exercises; and
+that the boot sequence runs end to end, since `cargo run -p
+adrian-boot-image` exits 0 only when init reports `Ready` *and* leaves a
+complete, in-order, non-overflowed ten-stage trace behind. That is the
+first time this project has reached the `boot tested (hosted)`
+verification level at all.
+
+It settled nothing about hardware. No code here has executed outside a
+hosted userspace process, so every `arch::x86_64` module remains
+type-checked hardware description. Green CI cannot change that; only a
+bare-metal target can.
 
 
-| Syscalls | `ProcessCreate`, `ThreadCreate`, `ChannelCreate`, `EventCreate`, `HandleClose` are all real, dispatching to real kernel functions, and all now go through a capability check first (**compiles; tests unrun** — see below). |
-| IPC | Real `Channel` (send/receive, backpressure, closed-channel handling) and `Event` (signal/clear) objects, each with a real table and syscall-reachable create/destroy. |
-| Security | Real `CapabilityRights` (bitflag composition, the `can_derive` narrowing invariant) and `SecurityLabel` (trust ordering), combined into `is_authorized` — and now enforced: every syscall carries a `SyscallPolicy` (minimum label + required rights) and `dispatch_syscall_as` authorizes the caller's `SyscallContext` against it before any side effect, denying with `PermissionDenied`. What is missing is provenance, not enforcement: nothing populates a `SyscallContext` from hardware state (no trap handler, no current-thread concept), so callers pass it explicitly, and kernel objects carry no label of their own yet — the label check compares against the syscall's minimum, not the target object's trust level. (**compiles; tests unrun** — see below.) |
-| Handle registry | Real `object::HandleRegistry` mapping any `KernelObjectId` to its kind, letting `HandleClose` dispatch generically across object types. |
-
-**Compiles clean; tests not yet run.** The capability enforcement in
-`syscall.rs` — `SyscallPolicy`, `SyscallContext`, `SyscallNumber::policy()`
-and `dispatch_syscall_as` — has now been through `rustc`. Both feature
-configurations build with zero errors and zero warnings on the stable
-MSVC toolchain:
-
-```
-cargo build -p adrian-kernel                   # no_std, the bare-metal config
-cargo build -p adrian-kernel --features std    # hosted config
-```
-
-That is real verification, and worth being precise about what it covers:
-every production path type-checks, including the `const fn` bodies of
-`policy()` and `authorize()` (a genuine constraint — not every control
-flow is legal in a `const fn`) and the argument order of the
+A block sat here recording that capability enforcement in `syscall.rs`
+had been through `rustc` locally on MSVC but that its tests were still
+unrun, and it ended with the instruction "drop the two markers above
+once that job is green". Pipeline #2803579010 is that job. Removed
+rather than left in place, because a note explaining that something is
+unverified becomes actively misleading the moment it is verified. What
+it was waiting to confirm — that `dispatch_syscall_as` authorizes
+before any side effect, and that the four-argument
 `is_authorized(holder_label, holder_rights, target_label,
-requested_rights)` call, which is easy to get wrong and impossible to
-catch by reading. Zero warnings also confirms the `kernel_init` removal
-left nothing orphaned behind it.
-
-What it does **not** cover: the 8 new tests and the 12 pre-existing ones
-live behind `#[cfg(test)]`, so a library build never compiles them, let
-alone runs them. That needs a test executable, which needs a linker this
-machine does not have — see "How this project gets compiled". So the
-assertions remain unproven, and compiling says nothing about whether the
-chosen policy values are the *right* ones. `cargo test -p adrian-kernel
---features std`, which CI runs as part of the workspace test job, settles
-it. Drop the two markers above once that job is green.
+requested_rights)` order is correct, which is easy to get wrong and
+impossible to catch by reading — is now covered by the 21 passing
+syscall tests and the 15 security ones.
 
 **Genuinely blocked, not just unstarted:** real exception handlers,
 context switching, a page-table mapper, and true bare-metal
@@ -327,12 +321,18 @@ where you are:
 | Agent sandbox (Linux) | No | No rustc, no cargo, and no network to install them. |
 | Windows host, MSVC toolchain | **Libraries only** | `rustc.exe` runs fine. `cargo build -p adrian-kernel` succeeds in both feature configurations, because an `rlib` needs no linker at all. Anything that produces an executable — `cargo test`, or building `adrian-boot-image` — fails with `error: linker 'link.exe' not found`. The MSVC linker ships with Visual Studio Build Tools, not with rustup. |
 | Windows host, GNU toolchain | No | Installs, then refuses to execute: `An Application Control policy has blocked this file. (os error 4551)` — Smart App Control blocking a low-reputation unsigned binary. |
-| **GitHub Actions** | **Yes** | `.github/workflows/rust.yml`, `ubuntu-latest`, on every push to `main` and every PR. Two Rust jobs (workspace build + `no_std` kernel build, then `cargo test`) plus a Dart job running `dart analyze --fatal-infos` over `sdk/dart` and `canvas`. |
-| **GitLab CI** | **Yes** | `.gitlab-ci.yml` on the `gitlab` remote — mirrors the GitHub workflow step for step, and additionally runs `python3 tools/graph/validate.py`. Two remotes verifying the same things is redundancy, not duplication: if one is unavailable the other still answers "does it build". Keep them in sync; each file says so in a comment. |
+| **GitHub Actions** | **No — account billing locked** | `.github/workflows/rust.yml` is present and correct, but as of 2026-08-30 GitHub refuses to run it: *"GitHub Actions workflows can't be executed on this repository. Your account's billing is currently locked."* The workflow is kept, not deleted, because the block is an account state rather than a defect — it starts working again the moment billing is resolved. Until then it verifies nothing, so do not cite it as evidence. |
+| **GitLab CI** | **Yes — the only working compiler** | `.gitlab-ci.yml` on the `gitlab` remote. Mirrors the GitHub workflow step for step and additionally runs `python3 tools/graph/validate.py` and `dart analyze`. The two-remote setup was built for redundancy and has now paid for itself: one remote is unavailable and the other still answers "does it build". Keep them in sync anyway — each file says so in a comment — so that GitHub resumes as a real second opinion rather than as bit-rot. |
+
+So **GitLab CI is currently the only thing in the world that compiles
+this project.** That is a single point of failure for every verification
+claim in this document, and worth fixing when convenient — either by
+restoring GitHub billing or by getting a linker onto the Windows host.
 
 So **CI is the compiler for this project**, not a safety net on top of
-local builds. Read the Actions (or Pipelines) log before believing any
-Rust claim here.
+local builds. Read the GitLab Pipelines log before believing any Rust
+claim here — and note that the GitHub Actions log is not an alternative
+source, because it does not exist.
 
 One subtlety that makes CI trustworthy for the kernel specifically. The
 workflow runs a bare `cargo test --verbose` with no `--features` flag,

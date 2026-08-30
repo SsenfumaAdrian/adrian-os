@@ -16,10 +16,25 @@ verification level for every claim, using these terms only:
 There is deliberately no "works" or "done". Compiling is not working.
 
 **Last updated:** 2026-08-30, after the Sprint 1 boot-path refactor.
-**Verification status of this update:** the Rust changed in Sprint 1 has
-**not yet been verified** — no rustc, cargo, or Dart SDK exists in the
-environment these edits were made from. CI on GitHub and GitLab is the
-compiler for this project. Nothing below claims otherwise.
+
+**Verification status of this update: verified.** GitLab pipeline
+[#2803579010](https://gitlab.com/adrian-group9612635/adrian-os/-/pipelines)
+on commit `66bab0e` passed all six jobs in 1m34s — `rust-build`,
+`rust-test`, `boot-test`, `dart-analyze` (×2), `graph-validate`.
+
+This is the first CI log ever read for this project, and it retires the
+largest caveat this document used to carry. Until this run, every
+"unit tested" claim anywhere in the repo rested on tests written to be
+correct rather than on an observed pass. They have now been observed. The
+218 `#[test]` functions across the three test-bearing crates (168 kernel,
+31 pulse, 19 vault) compile and pass, in both the hosted and the `no_std`
+configurations, and the boot sequence ran end to end.
+
+What that does **not** establish is unchanged and still the main point of
+this document: nothing here has executed outside a hosted userspace
+process. See the verification table above — `boot tested (hosted)` is now
+a level this project has actually reached, and `boot tested (bare metal)`
+is still one it cannot reach at all.
 
 ---
 
@@ -39,7 +54,8 @@ the kind of thing that gets copied forward without being re-derived.
 (`adrian-kernel`), `rian/boot-image` (`adrian-boot-image`), `pulse`,
 `vault`. `canvas` sits outside any workspace.
 
-**What exists and is unit tested:** a spin lock with a real 8-thread ×
+**What exists and is unit tested** — and, as of pipeline #2803579010,
+observed to pass rather than merely believed to: a spin lock with a real 8-thread ×
 10,000-increment concurrency test; a fixed-capacity physical-region
 classifier and bootstrap allocator; x86_64 IDT, PIC remap, PIT divisor
 math, and 4-level page-table types; a round-robin ready queue; process
@@ -48,7 +64,13 @@ events; capability rights and security labels with `is_authorized` wired
 into syscall dispatch; the vault key envelope.
 
 **What exists but is not reachable from a real boot:** all of the above.
-Nothing has ever executed outside a hosted test process.
+Nothing has ever executed outside a hosted test process. What *has* now
+been established, by pipeline #2803579010, is that the hosted boot path
+runs to completion: `cargo run -p adrian-boot-image` exited 0, which it
+only does when init reports `Ready` **and** leaves behind a
+ten-stage, in-order, non-overflowed trace. So the init sequence is
+`boot tested (hosted)` — nine subsystem init functions genuinely execute,
+in the documented order, and say so.
 
 **The single most important fact about this repository:** there is no
 bare-metal build path. No linker script, no `.cargo/config.toml`, no
@@ -59,13 +81,21 @@ type-checked hardware description, not exercised hardware bring-up.
 
 **How this project gets compiled.** No local environment both links
 executables and runs tests: MSVC can type-check libraries but cannot
-link, and the GNU toolchain is blocked by Smart App Control. GitHub
-Actions and GitLab CI are the source of truth, and they now check four
-things: workspace build, kernel-alone build (which is the only place the
-`no_std` configuration gets compiled at all — under resolver 2,
-`boot-image`'s `features = ["std"]` unifies onto the kernel for any
-workspace-wide invocation), the full test suite, and, as of Sprint 1, a
-hosted boot test.
+link, and the GNU toolchain is blocked by Smart App Control. **GitLab CI
+is therefore the only thing that compiles this project.** GitHub Actions
+was the intended co-equal second remote and its workflow is committed and
+correct, but the account's billing is locked, so GitHub refuses to run
+any workflow at all — it currently verifies nothing and must not be cited
+as evidence. That makes a single GitLab pipeline the sole support for
+every verification claim in this document, which is a real fragility and
+not a footnote.
+
+GitLab checks four things: workspace build, kernel-alone build (which is
+the only place the `no_std` configuration gets compiled at all — under
+resolver 2, `boot-image`'s `features = ["std"]` unifies onto the kernel
+for any workspace-wide invocation), the full test suite, and, as of
+Sprint 1, a hosted boot test. It additionally runs `dart analyze` and
+`tools/graph/validate.py`.
 
 ---
 
@@ -165,10 +195,15 @@ choosing an id.
 **P2 — UTF-8 BOMs on many source files**, and a set of `*.ps1` "pack"
 scripts in the repository root that appear to be superseded scaffolding.
 
-**Verification gap, not a code defect:** no CI log from either remote has
-ever been read. Every claim of "unit tested" above rests on tests that
-were written to be correct, not on an observed green run. This is the
-single largest source of uncertainty in this document.
+**Retired: the verification gap.** Previous revisions of this document
+ended section C with "no CI log from either remote has ever been read",
+called it the single largest source of uncertainty here, and were right
+to. Pipeline #2803579010 closed it. The remaining uncertainty is of a
+different and more honest kind: not "does this code compile and pass its
+own tests" — it does — but "do those tests assert anything about
+hardware", and for every `arch::x86_64` module the answer is still no.
+That is what P0 above is about, and no amount of green CI will change it
+until there is something to boot.
 
 ---
 
@@ -177,7 +212,8 @@ single largest source of uncertainty in this document.
 Ordered so that each step is verifiable when it lands, rather than
 grouped by subsystem.
 
-1. **Boot observability** — make init report what it did. *(Sprint 1, done pending compile.)*
+1. **Boot observability** — make init report what it did. *(Sprint 1 —
+   done, and verified by pipeline #2803579010: boot tested (hosted).)*
 2. **Bare-metal artifact** — `x86_64-unknown-none`, entry stub, linker
    script, minimal bootloader; QEMU target in CI. First step that
    produces `boot tested (bare metal)` as an achievable verification level.
@@ -206,7 +242,9 @@ report on itself. Nine subsystem init functions had zero test coverage
 because the only path that reached them ended in an infinite loop, and
 nothing can be asserted about a function that never returns.
 
-**Delivered** (all **not yet verified** — awaiting CI):
+**Delivered** (all **verified** by GitLab pipeline #2803579010 on
+`66bab0e` — compiled in both feature configurations, tests passed, and
+the hosted boot ran end to end):
 
 - **`boot_trace.rs` (new).** `BootStage` (10 ordered variants) and
   `BootTrace`, a fixed-capacity ordered record with `reached`,
@@ -264,8 +302,8 @@ nothing can be asserted about a function that never returns.
   init's opinion of itself while the trace is evidence of the steps it
   reached, and a disagreement between them is exactly what this catches.
 - **`tools/graph/validate.py`.** 13 checks → 16, and this is the one
-  Sprint 1 change that *is* verified, because it is Python and the
-  environment runs Python. Sprint 1 broke a check: the assertion
+  Sprint 1 change that was verified *before* CI existed, because it is
+  Python and the environment runs Python. Sprint 1 broke a check: the assertion
   "BootContext ranks among the most depended-on symbols" used a fixed
   top-8 window, and `boot_trace`'s `BootStage` (hub score 70) and
   `record` (35) both outrank `BootContext` (30), pushing it to rank 9 of
@@ -284,4 +322,5 @@ nothing can be asserted about a function that never returns.
 
 **Not delivered, and not claimed:** none of this is bare-metal verified,
 because there is still nothing to boot. Sprint 1 makes the boot sequence
-*legible*; step 2 of the roadmap is what makes it *real*.
+*legible* — and pipeline #2803579010 proves it is legible in practice and
+not merely in intent. Step 2 of the roadmap is what makes it *real*.
