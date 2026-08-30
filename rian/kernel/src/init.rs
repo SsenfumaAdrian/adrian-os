@@ -1,10 +1,11 @@
 ﻿use crate::boot::BootContext;
 
-/// Legacy top-level init path used by current scaffolding.
-pub fn early_kernel_init() {
-    let boot_context = BootContext::empty();
-    early_kernel_init_with_context(&boot_context);
-}
+// `early_kernel_init()` -- a no-argument wrapper that built a
+// `BootContext::empty()` and called into the sequence below -- was removed
+// alongside `lib.rs`'s `kernel_init()`, its only caller. It described
+// itself as the "legacy top-level init path used by current scaffolding",
+// and that scaffolding is gone. `entry::kernel_entry` supplies a real
+// `BootContext`, so the context-taking form below is the only init path.
 
 /// Main early initialization sequence with explicit boot context.
 pub fn early_kernel_init_with_context(context: &BootContext) {

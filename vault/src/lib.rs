@@ -16,6 +16,32 @@ pub enum VaultError {
     OperationFailed,
 }
 
+/// Interface for entropy sources (hardware RNG, bootloader seed, synthetic test source).
+pub trait EntropyProvider {
+    fn fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), VaultError>;
+}
+
+/// A deterministic mock entropy source for testing.
+pub struct MockEntropySource {
+    counter: u8,
+}
+
+impl MockEntropySource {
+    pub const fn new(seed: u8) -> Self {
+        Self { counter: seed }
+    }
+}
+
+impl EntropyProvider for MockEntropySource {
+    fn fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), VaultError> {
+        for b in dest.iter_mut() {
+            *b = self.counter;
+            self.counter = self.counter.wrapping_add(1);
+        }
+        Ok(())
+    }
+}
+
 pub struct SymmetricKey {
     bytes: [u8; KEY_LEN],
 }
@@ -23,6 +49,55 @@ pub struct SymmetricKey {
 impl SymmetricKey {
     pub const fn from_bytes(bytes: [u8; KEY_LEN]) -> Self {
         Self { bytes }
+    }
+
+    pub fn generate<E: EntropyProvider>(rng: &mut E) -> Result<Self, VaultError> {
+        let mut bytes = [0u8; KEY_LEN];
+        rng.fill_bytes(&mut bytes)?;
+        Ok(Self { bytes })
+    }
+
+    pub fn as_bytes(&self) -> &[u8; KEY_LEN] {
+        &self.bytes
+    }
+}
+
+/// Key envelope for protected key storage and serialization.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeyEnvelope {
+    pub version: u32,
+    pub nonce: [u8; NONCE_LEN],
+    pub ciphertext: Vec<u8>,
+}
+
+impl KeyEnvelope {
+    pub const CURRENT_VERSION: u32 = 1;
+
+    /// Protect a key payload into an encrypted storage envelope using a master key and nonce.
+    pub fn seal(
+        master_key: &SymmetricKey,
+        nonce: &[u8; NONCE_LEN],
+        domain_tag: &[u8],
+        key_payload: &[u8],
+    ) -> Result<Self, VaultError> {
+        let ciphertext = encrypt(master_key, nonce, domain_tag, key_payload)?;
+        Ok(Self {
+            version: Self::CURRENT_VERSION,
+            nonce: *nonce,
+            ciphertext,
+        })
+    }
+
+    /// Unseal an encrypted storage envelope using the master key.
+    pub fn unseal(
+        &self,
+        master_key: &SymmetricKey,
+        domain_tag: &[u8],
+    ) -> Result<Vec<u8>, VaultError> {
+        if self.version != Self::CURRENT_VERSION {
+            return Err(VaultError::OperationFailed);
+        }
+        decrypt(master_key, &self.nonce, domain_tag, &self.ciphertext)
     }
 }
 
@@ -459,5 +534,34 @@ mod tests {
         let signature = key.sign(&message);
         assert_eq!(signature, expected_signature);
         assert!(verify(&expected_public_key, &message, &expected_signature).is_ok());
+    }
+
+    #[test]
+    fn symmetric_key_generates_from_entropy() {
+        let mut rng = MockEntropySource::new(0xAA);
+        let key = SymmetricKey::generate(&mut rng).unwrap();
+        assert_eq!(key.as_bytes()[0], 0xAA);
+        assert_eq!(key.as_bytes()[1], 0xAB);
+    }
+
+    #[test]
+    fn key_envelope_seals_and_unseals_payload() {
+        let master_key = SymmetricKey::from_bytes([0x42; KEY_LEN]);
+        let nonce = [0x01; NONCE_LEN];
+        let domain_tag = b"storage.key.v1";
+        let secret_payload = b"super secret database credentials";
+
+        let envelope = KeyEnvelope::seal(&master_key, &nonce, domain_tag, secret_payload).unwrap();
+        assert_eq!(envelope.version, KeyEnvelope::CURRENT_VERSION);
+        assert_eq!(envelope.nonce, nonce);
+
+        let unsealed = envelope.unseal(&master_key, domain_tag).unwrap();
+        assert_eq!(unsealed.as_slice(), secret_payload);
+
+        // Fail unseal with wrong domain tag
+        assert_eq!(
+            envelope.unseal(&master_key, b"wrong.domain.tag"),
+            Err(VaultError::OperationFailed)
+        );
     }
 }

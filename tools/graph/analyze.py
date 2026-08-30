@@ -44,7 +44,20 @@ REPO_ROOT = os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 )
 OUT_DIR = os.path.join(REPO_ROOT, "graph-out")
-SKIP_DIRS = {".git", "target", "graph-out", "graphify-out", ".dart_tool", "build"}
+# `graphify` is a read-only third-party clone kept in the tree for
+# reference. Without it here, its own test fixtures (e.g.
+# graphify/tests/fixtures/sample.rs) get indexed as if they were part of
+# this codebase, which is exactly the kind of false signal this tool
+# exists to avoid producing.
+SKIP_DIRS = {
+    ".git",
+    "target",
+    "graph-out",
+    "graphify-out",
+    "graphify",
+    ".dart_tool",
+    "build",
+}
 
 # Kinds of item declaration we index. `impl` is handled separately since
 # it names a type rather than declaring a new one.

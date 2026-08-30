@@ -1,4 +1,4 @@
-﻿use crate::error::KernelError;
+use crate::error::KernelError;
 use crate::object::KernelObjectId;
 
 /// Basic thread lifecycle placeholder.
@@ -12,6 +12,19 @@ pub enum ThreadState {
     Terminating,
     Terminated,
     Faulted,
+}
+
+impl ThreadState {
+    pub const fn is_active(&self) -> bool {
+        matches!(
+            self,
+            Self::Created | Self::Runnable | Self::Running | Self::Blocked | Self::Suspended
+        )
+    }
+
+    pub const fn is_runnable(&self) -> bool {
+        matches!(self, Self::Runnable | Self::Running)
+    }
 }
 
 /// Simplified thread model scaffold.
@@ -29,6 +42,14 @@ impl Thread {
             process_id,
             state: ThreadState::Created,
         }
+    }
+
+    pub const fn is_active(&self) -> bool {
+        self.state.is_active()
+    }
+
+    pub const fn is_runnable(&self) -> bool {
+        self.state.is_runnable()
     }
 }
 

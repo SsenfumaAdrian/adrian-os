@@ -66,6 +66,12 @@ class AdrianChannel {
     return AdrianChannel._(id, backend);
   }
 
+  /// Send a payload through this channel.
+  bool send(List<int> payload) => _backend.sendMessage(id, payload);
+
+  /// Receive a payload from this channel. `null` if empty.
+  List<int>? receive() => _backend.receiveMessage(id);
+
   bool destroy() => _backend.destroyHandle(id);
 
   @override

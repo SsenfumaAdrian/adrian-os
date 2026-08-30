@@ -1,4 +1,4 @@
-﻿/// IPC scaffold.
+/// IPC scaffold.
 use crate::error::KernelError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,6 +131,18 @@ impl Channel {
         self.messages[tail] = Some(message);
         self.len += 1;
         Ok(())
+    }
+
+    pub const fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn peek(&self) -> Option<&Message> {
+        if self.is_empty() {
+            None
+        } else {
+            self.messages[self.head].as_ref()
+        }
     }
 
     pub fn receive(&mut self) -> Option<Message> {

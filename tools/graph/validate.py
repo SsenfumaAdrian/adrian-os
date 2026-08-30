@@ -135,16 +135,13 @@ def main() -> int:
         f"got {summary['workspace_crates']}",
     )
 
-    # 6. The known-orphaned scaffold files are detected. PROGRESS.md
-    #    names two; if this finds more, that is a discrepancy worth
-    #    surfacing rather than an analyser bug, so it is reported
-    #    separately below instead of failing the check.
+    # 6. Orphaned scaffold files cleanup validation. All 6 documented
+    #    scaffold files outside the Cargo workspace have been cleaned up.
     outside = set(summary["files_outside_workspace"])
-    documented = {"rian/security/mod.rs", "rian/ipc/mod.rs"}
     check(
-        "both documented orphan files are detected",
-        documented <= outside,
-        f"missing {sorted(documented - outside)}",
+        "no orphan files sit outside workspace after cleanup",
+        len(outside) == 0,
+        f"found unexpected outside files: {sorted(outside)}",
     )
 
     width = max(len(label) for _, label, _ in results)
@@ -155,13 +152,9 @@ def main() -> int:
     failures = sum(1 for status, _, _ in results if status == FAIL)
     print(f"\n{len(results) - failures}/{len(results)} checks passed")
 
-    extra = sorted(outside - documented)
-    if extra:
-        print(
-            f"\nNote: {len(outside)} files sit outside the cargo workspace, but "
-            f"PROGRESS.md documents only {len(documented)}.\nUndocumented:"
-        )
-        for path in extra:
+    if outside:
+        print(f"\nNote: {len(outside)} files sit outside the cargo workspace:\n")
+        for path in sorted(outside):
             print(f"  {path}")
     return 1 if failures else 0
 

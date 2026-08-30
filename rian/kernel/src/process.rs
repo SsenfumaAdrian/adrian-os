@@ -1,4 +1,4 @@
-﻿use crate::error::KernelError;
+use crate::error::KernelError;
 use crate::object::KernelObjectId;
 
 /// Basic process lifecycle placeholder.
@@ -15,6 +15,24 @@ pub enum ProcessState {
     Crashed,
 }
 
+impl ProcessState {
+    pub const fn is_active(&self) -> bool {
+        matches!(
+            self,
+            Self::Created
+                | Self::Initialized
+                | Self::Runnable
+                | Self::Running
+                | Self::Blocked
+                | Self::Suspended
+        )
+    }
+
+    pub const fn is_runnable(&self) -> bool {
+        matches!(self, Self::Runnable | Self::Running)
+    }
+}
+
 /// Simplified process model scaffold.
 #[derive(Debug, Clone, Copy)]
 pub struct Process {
@@ -28,6 +46,14 @@ impl Process {
             id,
             state: ProcessState::Created,
         }
+    }
+
+    pub const fn is_active(&self) -> bool {
+        self.state.is_active()
+    }
+
+    pub const fn is_runnable(&self) -> bool {
+        self.state.is_runnable()
     }
 }
 

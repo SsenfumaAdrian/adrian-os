@@ -31,6 +31,12 @@ abstract class AdrianBackend {
 
   /// `null` if `id` isn't a currently-live event.
   bool? isEventSignaled(KernelObjectId id);
+
+  /// Queue a message into a channel's in-memory buffer.
+  bool sendMessage(KernelObjectId channelId, List<int> payload);
+
+  /// Dequeue a message from a channel's in-memory buffer. `null` if empty or invalid handle.
+  List<int>? receiveMessage(KernelObjectId channelId);
 }
 
 enum _ObjectKind { process, thread, channel, event }
@@ -46,11 +52,15 @@ class HostSimulationBackend implements AdrianBackend {
   int _nextId = 1;
   final Map<int, _ObjectKind> _registry = {};
   final Set<int> _signaledEvents = {};
+  final Map<int, List<List<int>>> _channelBuffers = {};
 
   KernelObjectId _allocate(_ObjectKind kind) {
     final id = _nextId;
     _nextId += 1;
     _registry[id] = kind;
+    if (kind == _ObjectKind.channel) {
+      _channelBuffers[id] = [];
+    }
     return KernelObjectId(id);
   }
 
@@ -78,6 +88,7 @@ class HostSimulationBackend implements AdrianBackend {
     }
     _registry.remove(id.value);
     _signaledEvents.remove(id.value);
+    _channelBuffers.remove(id.value);
     return true;
   }
 
@@ -96,5 +107,26 @@ class HostSimulationBackend implements AdrianBackend {
       return null;
     }
     return _signaledEvents.contains(id.value);
+  }
+
+  @override
+  bool sendMessage(KernelObjectId channelId, List<int> payload) {
+    if (_registry[channelId.value] != _ObjectKind.channel) {
+      return false;
+    }
+    final buffer = _channelBuffers[channelId.value];
+    if (buffer == null) return false;
+    buffer.add(List.unmodifiable(payload));
+    return true;
+  }
+
+  @override
+  List<int>? receiveMessage(KernelObjectId channelId) {
+    if (_registry[channelId.value] != _ObjectKind.channel) {
+      return null;
+    }
+    final buffer = _channelBuffers[channelId.value];
+    if (buffer == null || buffer.isEmpty) return null;
+    return buffer.removeAt(0);
   }
 }

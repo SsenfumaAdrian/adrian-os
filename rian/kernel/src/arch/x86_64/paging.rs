@@ -133,6 +133,173 @@ impl VirtualAddress {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageMappingError {
+    AlreadyMapped,
+    NotMapped,
+    AllocationFailed,
+    InvalidAddress,
+}
+
+/// Software-driven 4-level page table mapper (PML4 -> PDPT -> PD -> PT).
+/// Operates on a root PML4 table, walking and creating intermediate tables as needed.
+pub struct SoftwarePageMapper<'a> {
+    pml4: &'a mut PageTable,
+    /// Physical memory offset mapping physical addresses to virtual accessibility pointers.
+    phys_offset: u64,
+}
+
+impl<'a> SoftwarePageMapper<'a> {
+    pub fn new(pml4: &'a mut PageTable, phys_offset: u64) -> Self {
+        Self { pml4, phys_offset }
+    }
+
+    /// Convert a physical address to a mutable reference to a `PageTable` using `phys_offset`.
+    ///
+    /// # Safety
+    /// Caller must ensure `phys` points to a valid `PageTable` allocation.
+    unsafe fn phys_to_table_mut(&self, phys: PhysicalAddress) -> &'a mut PageTable {
+        let virt_ptr = (phys.0 + self.phys_offset) as *mut PageTable;
+        &mut *virt_ptr
+    }
+
+    /// Convert a physical address to an immutable reference to a `PageTable` using `phys_offset`.
+    ///
+    /// # Safety
+    /// Caller must ensure `phys` points to a valid `PageTable` allocation.
+    unsafe fn phys_to_table(&self, phys: PhysicalAddress) -> &'a PageTable {
+        let virt_ptr = (phys.0 + self.phys_offset) as *const PageTable;
+        &*virt_ptr
+    }
+
+    /// Walk the 4-level hierarchy and translate a `VirtualAddress` to its mapped `PhysicalAddress`.
+    pub fn translate(&self, virt: VirtualAddress) -> Option<PhysicalAddress> {
+        let parts = virt.split();
+
+        let pml4e = self.pml4.entry(parts.pml4_index);
+        if !pml4e.is_present() {
+            return None;
+        }
+
+        let pdpt = unsafe { self.phys_to_table(pml4e.physical_address()) };
+        let pdpte = pdpt.entry(parts.pdpt_index);
+        if !pdpte.is_present() {
+            return None;
+        }
+
+        let pd = unsafe { self.phys_to_table(pdpte.physical_address()) };
+        let pde = pd.entry(parts.pd_index);
+        if !pde.is_present() {
+            return None;
+        }
+
+        let pt = unsafe { self.phys_to_table(pde.physical_address()) };
+        let pte = pt.entry(parts.pt_index);
+        if !pte.is_present() {
+            return None;
+        }
+
+        Some(PhysicalAddress(pte.physical_address().0 + parts.offset as u64))
+    }
+
+    /// Map a virtual page to a physical frame, allocating intermediate page tables via `allocator` as needed.
+    pub fn map_page(
+        &mut self,
+        virt: VirtualAddress,
+        phys: PhysicalAddress,
+        flags: PageFlags,
+        allocator: &mut crate::mm::BootstrapAllocator,
+    ) -> Result<(), PageMappingError> {
+        let parts = virt.split();
+
+        // 1. PML4 -> PDPT
+        let pdpt_phys = Self::get_or_create_table_at(self.pml4, parts.pml4_index, self.phys_offset, allocator)?;
+        let pdpt = unsafe { self.phys_to_table_mut(pdpt_phys) };
+
+        // 2. PDPT -> PD
+        let pd_phys = Self::get_or_create_table_at(pdpt, parts.pdpt_index, self.phys_offset, allocator)?;
+        let pd = unsafe { self.phys_to_table_mut(pd_phys) };
+
+        // 3. PD -> PT
+        let pt_phys = Self::get_or_create_table_at(pd, parts.pd_index, self.phys_offset, allocator)?;
+        let pt = unsafe { self.phys_to_table_mut(pt_phys) };
+
+        // 4. PT entry setting
+        let pte = pt.entry(parts.pt_index);
+        if pte.is_present() {
+            return Err(PageMappingError::AlreadyMapped);
+        }
+
+        pt.set_entry(parts.pt_index, PageTableEntry::new(phys, flags));
+        Ok(())
+    }
+
+    /// Unmap a virtual page, returning its physical frame address.
+    pub fn unmap_page(&mut self, virt: VirtualAddress) -> Result<PhysicalAddress, PageMappingError> {
+        let parts = virt.split();
+
+        let pml4e = self.pml4.entry(parts.pml4_index);
+        if !pml4e.is_present() {
+            return Err(PageMappingError::NotMapped);
+        }
+
+        let pdpt = unsafe { self.phys_to_table_mut(pml4e.physical_address()) };
+        let pdpte = pdpt.entry(parts.pdpt_index);
+        if !pdpte.is_present() {
+            return Err(PageMappingError::NotMapped);
+        }
+
+        let pd = unsafe { self.phys_to_table_mut(pdpte.physical_address()) };
+        let pde = pd.entry(parts.pd_index);
+        if !pde.is_present() {
+            return Err(PageMappingError::NotMapped);
+        }
+
+        let pt = unsafe { self.phys_to_table_mut(pde.physical_address()) };
+        let pte = pt.entry(parts.pt_index);
+        if !pte.is_present() {
+            return Err(PageMappingError::NotMapped);
+        }
+
+        let phys_frame = pte.physical_address();
+        pt.set_entry(parts.pt_index, PageTableEntry::missing());
+        Ok(phys_frame)
+    }
+
+    fn get_or_create_table_at(
+        parent: &mut PageTable,
+        index: usize,
+        phys_offset: u64,
+        allocator: &mut crate::mm::BootstrapAllocator,
+    ) -> Result<PhysicalAddress, PageMappingError> {
+        let entry = parent.entry(index);
+        if entry.is_present() {
+            Ok(entry.physical_address())
+        } else {
+            let new_table_phys = allocator
+                .allocate(4096, 4096)
+                .ok_or(PageMappingError::AllocationFailed)?;
+
+            let virt_ptr = (new_table_phys.0 + phys_offset) as *mut PageTable;
+            let new_table = unsafe { &mut *virt_ptr };
+            *new_table = PageTable::new();
+
+            parent.set_entry(
+                index,
+                PageTableEntry::new(
+                    new_table_phys,
+                    PageFlags {
+                        present: true,
+                        writable: true,
+                        user_accessible: true,
+                    },
+                ),
+            );
+            Ok(new_table_phys)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,5 +416,57 @@ mod tests {
         assert_eq!(parts.pd_index, 0);
         assert_eq!(parts.pt_index, 0);
         assert_eq!(parts.offset, 0);
+    }
+
+    #[test]
+    fn software_mapper_maps_translates_and_unmaps_page() {
+        use crate::mm::{MemoryRegion, MemoryRegionKind};
+
+        let mut pml4 = PageTable::new();
+        // Allocate a memory backing buffer for simulated physical memory allocation
+        let mut mem_buffer = [0u8; 4096 * 10];
+        let buf_ptr = mem_buffer.as_mut_ptr() as u64;
+
+        let regions = [MemoryRegion {
+            start: PhysicalAddress(buf_ptr),
+            length: 4096 * 10,
+            kind: MemoryRegionKind::Usable,
+        }];
+        let mut allocator = crate::mm::BootstrapAllocator::new();
+        assert!(allocator.init(&regions));
+
+        let mut mapper = SoftwarePageMapper::new(&mut pml4, 0);
+
+        let virt = VirtualAddress(0x0000_7FFF_FFFF_0000);
+        let phys = PhysicalAddress(0x1000_0000);
+        let flags = PageFlags {
+            present: true,
+            writable: true,
+            user_accessible: true,
+        };
+
+        // Before mapping, translation returns None
+        assert_eq!(mapper.translate(virt), None);
+
+        // Perform mapping
+        assert_eq!(mapper.map_page(virt, phys, flags, &mut allocator), Ok(()));
+
+        // Translation returns the mapped physical frame
+        assert_eq!(mapper.translate(virt), Some(phys));
+
+        // Mapping same virtual address again returns AlreadyMapped
+        assert_eq!(
+            mapper.map_page(virt, phys, flags, &mut allocator),
+            Err(PageMappingError::AlreadyMapped)
+        );
+
+        // Unmapping returns the original physical address
+        assert_eq!(mapper.unmap_page(virt), Ok(phys));
+
+        // After unmapping, translation returns None
+        assert_eq!(mapper.translate(virt), None);
+
+        // Unmapping again returns NotMapped
+        assert_eq!(mapper.unmap_page(virt), Err(PageMappingError::NotMapped));
     }
 }

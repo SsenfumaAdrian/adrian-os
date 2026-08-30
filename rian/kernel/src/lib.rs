@@ -18,8 +18,11 @@ pub mod sync;
 pub mod syscall;
 pub mod thread;
 
-/// Top-level kernel initialization entry point.
-/// This remains a scaffold while bring-up proceeds.
-pub fn kernel_init() {
-    init::early_kernel_init();
-}
+// Deliberately no top-level init function here. The kernel's entry point
+// is `entry::kernel_entry`, which `rian/boot-image` calls directly; it
+// takes a `BootContext` and hands off to
+// `init::early_kernel_init_with_context`.
+//
+// A `kernel_init()` wrapper used to sit at this spot with zero callers.
+// Two entry points, only one of them real, is a trap for whoever reads
+// `lib.rs` first -- removed rather than left as a decoy.

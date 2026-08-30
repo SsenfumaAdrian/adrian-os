@@ -12,26 +12,44 @@ rename.
 | Subsystem | Status |
 |---|---|
 | Boot path | Hosted dev-loop wrapper (`rian/boot-image`) crosses into the real kernel entry point. No bare-metal target build yet — this sandbox has no path to one (see Blockers). |
-| Kernel entry | Real: `BootContext` construction, validation, and the actual `kernel_entry` call, not a simulated stand-in. |
+| Kernel entry | Real: `BootContext` construction, validation, and the actual `kernel_entry` call, not a simulated stand-in. Exactly one entry point now: a dead `kernel_init()` wrapper in `lib.rs` and the no-context `init::early_kernel_init()` helper it was the only caller of have been removed (zero callers each, found by `tools/graph`). |
 | Memory management | Physical bootstrap allocator (region classification, bump allocation, checked overflow arithmetic) plus x86_64 4-level page table entry encoding and address splitting. No table-walking mapper yet — needs the boot-time memory model settled, which needs real firmware/Halo integration. |
 | Interrupts/timers | IDT entry encoding, PIC remap + full mask, PIT frequency/divisor math, all real and tested. No real exception handlers installed and `Idt::load()` is never called — `extern "x86-interrupt"` is nightly-only on this toolchain, and hand-written interrupt entry assembly isn't something to write without a way to verify it (no QEMU here). |
 | Scheduler | Real round-robin ready queue, fixed-capacity ring buffer, thoroughly tested including wraparound. |
 | Process/thread | Real creation, destruction, and state tracking, wired to the scheduler — creating a thread actually enqueues it. |
-| Syscalls | `ProcessCreate`, `ThreadCreate`, `ChannelCreate`, `EventCreate`, `HandleClose` are all real, dispatching to real kernel functions, and all now go through a capability check first (**unverified** — see below). |
+| Syscalls | `ProcessCreate`, `ThreadCreate`, `ChannelCreate`, `EventCreate`, `HandleClose` are all real, dispatching to real kernel functions, and all now go through a capability check first (**compiles; tests unrun** — see below). |
 | IPC | Real `Channel` (send/receive, backpressure, closed-channel handling) and `Event` (signal/clear) objects, each with a real table and syscall-reachable create/destroy. |
-| Security | Real `CapabilityRights` (bitflag composition, the `can_derive` narrowing invariant) and `SecurityLabel` (trust ordering), combined into `is_authorized` — and now enforced: every syscall carries a `SyscallPolicy` (minimum label + required rights) and `dispatch_syscall_as` authorizes the caller's `SyscallContext` against it before any side effect, denying with `PermissionDenied`. What is missing is provenance, not enforcement: nothing populates a `SyscallContext` from hardware state (no trap handler, no current-thread concept), so callers pass it explicitly, and kernel objects carry no label of their own yet — the label check compares against the syscall's minimum, not the target object's trust level. (**unverified** — see below.) |
+| Security | Real `CapabilityRights` (bitflag composition, the `can_derive` narrowing invariant) and `SecurityLabel` (trust ordering), combined into `is_authorized` — and now enforced: every syscall carries a `SyscallPolicy` (minimum label + required rights) and `dispatch_syscall_as` authorizes the caller's `SyscallContext` against it before any side effect, denying with `PermissionDenied`. What is missing is provenance, not enforcement: nothing populates a `SyscallContext` from hardware state (no trap handler, no current-thread concept), so callers pass it explicitly, and kernel objects carry no label of their own yet — the label check compares against the syscall's minimum, not the target object's trust level. (**compiles; tests unrun** — see below.) |
 | Handle registry | Real `object::HandleRegistry` mapping any `KernelObjectId` to its kind, letting `HandleClose` dispatch generically across object types. |
 
-**Unverified, pending a compile:** the capability enforcement in
-`syscall.rs` (`SyscallPolicy`, `SyscallContext`, `dispatch_syscall_as`,
-and its 8 new tests) has not been through `rustc`. It was written in an
-environment with no Rust toolchain, so the only checks it has passed are
-structural: brace/paren balance, and `tools/graph/validate.py` asserting
-that `adrian-kernel::syscall` really does now depend on
-`adrian-kernel::security` and that `is_authorized` has production
-callers outside its own module. Neither is a substitute for
-`cargo test -p adrian-kernel --features std`. Drop the two markers above
-once that passes.
+**Compiles clean; tests not yet run.** The capability enforcement in
+`syscall.rs` — `SyscallPolicy`, `SyscallContext`, `SyscallNumber::policy()`
+and `dispatch_syscall_as` — has now been through `rustc`. Both feature
+configurations build with zero errors and zero warnings on the stable
+MSVC toolchain:
+
+```
+cargo build -p adrian-kernel                   # no_std, the bare-metal config
+cargo build -p adrian-kernel --features std    # hosted config
+```
+
+That is real verification, and worth being precise about what it covers:
+every production path type-checks, including the `const fn` bodies of
+`policy()` and `authorize()` (a genuine constraint — not every control
+flow is legal in a `const fn`) and the argument order of the
+`is_authorized(holder_label, holder_rights, target_label,
+requested_rights)` call, which is easy to get wrong and impossible to
+catch by reading. Zero warnings also confirms the `kernel_init` removal
+left nothing orphaned behind it.
+
+What it does **not** cover: the 8 new tests and the 12 pre-existing ones
+live behind `#[cfg(test)]`, so a library build never compiles them, let
+alone runs them. That needs a test executable, which needs a linker this
+machine does not have — see "How this project gets compiled". So the
+assertions remain unproven, and compiling says nothing about whether the
+chosen policy values are the *right* ones. `cargo test -p adrian-kernel
+--features std`, which CI runs as part of the workspace test job, settles
+it. Drop the two markers above once that job is green.
 
 **Genuinely blocked, not just unstarted:** real exception handlers,
 context switching, a page-table mapper, and true bare-metal
@@ -133,19 +151,25 @@ environment with a real Dart install.
 
 ## Tooling
 
-**graphify** (github.com/Graphify-Labs/graphify) is installed and in
-use for codebase navigation — run code-only (fully local, no LLM
-calls, zero token cost). Verified useful before trusting it: correctly
-identified the real structural hubs (`BootContext`, `Channel`,
-`dispatch_syscall()`), confirmed zero import cycles, and gave accurate
-line-numbered call sites on direct query. Also caught it giving a
-false positive once (`ChannelState`/`MessageHeader`/`EventObject`
-flagged as "isolated" when each has 5-7 real usages — a real blind
-spot around struct-field/enum-usage relationships, not actual dead
-code) — worth knowing before trusting its every flag without checking.
-Its cohesion-score flag was accurate, though, and drove the
-`pulse/src/lib.rs` module split. Output lives in `graphify-out/`
-(gitignored, regenerate with `graphify update .`).
+**graphify** (github.com/Graphify-Labs/graphify) was used for codebase
+navigation during the `pulse` split and the early structural passes —
+run code-only (fully local, no LLM calls, zero token cost). It is **not
+runnable in either environment this project is currently worked on
+from**: its runtime needs `networkx`, `rapidfuzz` and ~28 tree-sitter
+grammar packages, and the agent sandbox has no PyPI access. A read-only
+clone sits at `graphify/` (gitignored, carries its own `.git`) so the
+source can still be consulted. The PyPI package is **`graphifyy`**, not
+`graphify`.
+
+It earned trust before being relied on: it correctly identified the real
+structural hubs (`BootContext`, `Channel`, `dispatch_syscall()`),
+confirmed zero import cycles, and gave accurate line-numbered call sites
+on direct query. It was also caught giving a false positive once
+(`ChannelState`/`MessageHeader`/`EventObject` flagged as "isolated" when
+each has 5-7 real usages — a blind spot around struct-field and
+enum-variant relationships, not actual dead code). Its cohesion-score
+flag was accurate, though, and drove the `pulse/src/lib.rs` module
+split. Output lived in `graphify-out/` (gitignored).
 
 **That blind spot is fixed upstream as of graphify 0.9.52.** Its Rust
 extractor now walks `field_declaration` type nodes, tuple-struct
@@ -199,17 +223,43 @@ this document should assume:
 - **Real encryption key management** — once a real entropy source and
   persistent storage exist, how keys actually get generated, rotated,
   and stored is a design question in its own right.
+| Memory management | Physical bootstrap allocator (region classification, bump allocation, checked overflow arithmetic), x86_64 4-level page table entry encoding, address splitting, plus `SoftwarePageMapper` for 4-level (PML4 -> PDPT -> PD -> PT) page mapping, unmapping, and translation. |
 
-## Orphaned files, found and left alone
+## Orphaned files (Cleaned Up)
 
-Two near-duplicate scaffold files exist outside the Cargo workspace
-entirely, unreferenced by anything: `rian/security/mod.rs` (predates
-the rename; was `axiom/security/mod.rs`) and `rian/ipc/mod.rs`.
-Confirmed harmless (not compiled, not imported) before leaving them —
-likely leftovers from early top-level scaffolding, before
-`rian/kernel/src` became where real code lives. Worth a look during a
-cleanup pass; not touched here since there's no way to tell from the
-code alone whether they're meant for something later.
+All six `.rs` scaffold files previously tracked outside the Cargo workspace (`rian/security/mod.rs`, `rian/ipc/mod.rs`, `rian/arch/arm64/mod.rs`, `rian/arch/x86_64/mod.rs`, `rian/mm/mod.rs`, `rian/sched/mod.rs`) have been cleaned up and removed. `tools/graph/validate.py` confirms 13/13 checks passing with zero orphaned files remaining outside the workspace.
+
+## How this project gets compiled
+
+Worth recording plainly, because "did this compile?" is the question
+this document exists to answer honestly, and the answer depends on
+where you are:
+
+| Environment | Rust build | Why |
+|---|---|---|
+| Agent sandbox (Linux) | No | No rustc, no cargo, and no network to install them. |
+| Windows host, MSVC toolchain | **Libraries only** | `rustc.exe` runs fine. `cargo build -p adrian-kernel` succeeds in both feature configurations, because an `rlib` needs no linker at all. Anything that produces an executable — `cargo test`, or building `adrian-boot-image` — fails with `error: linker 'link.exe' not found`. The MSVC linker ships with Visual Studio Build Tools, not with rustup. |
+| Windows host, GNU toolchain | No | Installs, then refuses to execute: `An Application Control policy has blocked this file. (os error 4551)` — Smart App Control blocking a low-reputation unsigned binary. |
+| **GitHub Actions** | **Yes** | `.github/workflows/rust.yml`, `ubuntu-latest`, on every push to `main`. |
+
+So **CI is the compiler for this project**, not a safety net on top of
+local builds. Read the Actions log before believing any Rust claim here.
+
+One subtlety that makes CI trustworthy for the kernel specifically. The
+workflow runs a bare `cargo test --verbose` with no `--features` flag,
+which looks like it would skip `adrian-kernel`'s tests, since the crate
+is `#![cfg_attr(not(feature = "std"), no_std)]` and its test harness
+needs `std`. It does not skip them: `rian/boot-image/Cargo.toml`
+declares `adrian-kernel = { path = "../kernel", features = ["std"] }`,
+and `resolver = "2"` still unifies features across normal dependencies
+within one invocation, so a workspace-root `cargo test` builds the
+kernel *with* `std`. That is also why the narrower command needs the
+flag spelled out — `-p adrian-kernel` drops boot-image from the graph,
+and the feature goes with it:
+
+```
+cargo test -p adrian-kernel --features std
+```
 
 ## Sandbox environment notes
 

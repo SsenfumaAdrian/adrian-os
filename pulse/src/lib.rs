@@ -24,6 +24,6 @@ pub mod manifest;
 pub mod restart;
 
 pub use health::{HealthPolicy, HealthStatus};
-pub use lifecycle::{is_valid_transition, ServiceState};
+pub use lifecycle::{is_valid_transition, ServiceState, ServiceSupervisor};
 pub use manifest::{resolve_start_order, ResolutionError, ServiceManifest};
 pub use restart::RestartPolicy;
