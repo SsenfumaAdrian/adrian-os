@@ -3,6 +3,14 @@ name = "adrian-vault"
 version = "0.1.0"
 edition = "2021"
 
+# `test-utils` exposes `MockEntropySource`, a deterministic counter with a
+# 256-state keyspace. It exists so downstream crates can exercise
+# `SymmetricKey::generate` in their own tests. Enabling it in a production
+# build is a bug; it is off by default and nothing in this workspace turns
+# it on.
+[features]
+test-utils = []
+
 [dependencies]
 chacha20poly1305 = "0.10"
 zeroize = "=1.8.1"

@@ -46,7 +46,15 @@ pub fn is_valid_transition(from: ServiceState, to: ServiceState) -> bool {
 }
 
 /// A service supervisor instance managing a single service's state,
-/// restart backoff, and health tracking.
+/// restart budget, and health tracking. "Budget" not "backoff": the
+/// policy underneath counts failures inside a sliding window and gives
+/// up when that count is spent. Nothing here delays a restart, so there
+/// is no crash-loop damping yet.
+///
+/// It also holds no failure history of its own -- the caller owns that
+/// and passes it to `handle_failure`. That keeps the decision stateless
+/// and testable, but means this type supervises nothing on its own; it
+/// is a façade over three values until a real supervisor loop exists.
 #[derive(Debug, Clone)]
 pub struct ServiceSupervisor {
     name: String,
@@ -95,8 +103,18 @@ impl ServiceSupervisor {
         }
     }
 
-    /// Record a crash event timestamp `now` with past `failure_history`. Updates restart policy tracking and
-    /// transitions to `Starting` (if restart is allowed) or `Stopped` (if backoff limit reached).
+    /// Record a crash at `now` and decide what happens next.
+    ///
+    /// `failure_history` must contain only *earlier* failures -- not the one
+    /// being handled. `RestartPolicy::should_restart` counts every entry
+    /// inside its window against the budget, so including `now` spends one
+    /// extra allowance and denies a restart that was actually in budget.
+    ///
+    /// Transitions to `Starting` when the policy still allows a restart, or
+    /// `Stopped` when the budget for the window is spent. Note this is a
+    /// failure *count* within a sliding window, not a backoff delay -- there
+    /// is no exponential backoff in this crate yet, despite the module doc's
+    /// wording.
     pub fn handle_failure(
         &mut self,
         now: std::time::Instant,
@@ -226,18 +244,27 @@ mod tests {
 
         let mut failure_history = Vec::new();
 
-        // First crash -> restarts -> state becomes Starting
-        failure_history.push(t1);
+        // `failure_history` holds *past* failures only -- the crash being
+        // handled is not in it. That is `RestartPolicy::should_restart`'s
+        // documented contract, and `restart.rs`'s own
+        // `restart_denied_once_the_limit_is_reached` pins it: two failures
+        // already in the window with `max_failures = 2` means deny. So each
+        // timestamp is pushed *after* the call it belongs to, not before.
+        // Pushing first double-counts the current crash and makes the second
+        // restart -- which is inside budget -- come back `Stopped`.
+
+        // First crash, nothing before it -> 0 recent < 2 -> restart.
         assert_eq!(supervisor.handle_failure(t1, &failure_history), ServiceState::Starting);
+        failure_history.push(t1);
         assert!(supervisor.transition_to(ServiceState::Running));
 
-        // Second crash -> restarts -> state becomes Starting
-        failure_history.push(t2);
+        // Second crash, one before it -> 1 recent < 2 -> restart.
         assert_eq!(supervisor.handle_failure(t2, &failure_history), ServiceState::Starting);
+        failure_history.push(t2);
         assert!(supervisor.transition_to(ServiceState::Running));
 
-        // Third crash -> (exceeding 2 crashes in window) -> backoff exhausted -> state becomes Stopped
-        failure_history.push(t3);
+        // Third crash, two before it inside the 100s window -> budget
+        // exhausted -> give up rather than restart.
         assert_eq!(supervisor.handle_failure(t3, &failure_history), ServiceState::Stopped);
     }
 }

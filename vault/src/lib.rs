@@ -17,21 +17,44 @@ pub enum VaultError {
 }
 
 /// Interface for entropy sources (hardware RNG, bootloader seed, synthetic test source).
+///
+/// **No production implementation of this trait exists yet.** The only
+/// implementor in the crate is [`MockEntropySource`], which is gated
+/// behind `cfg(test)` / the `test-utils` feature, so in a normal build
+/// this trait has no implementors at all and
+/// [`SymmetricKey::generate`] is uncallable. Real key generation is an
+/// open design question — see PROGRESS.md.
 pub trait EntropyProvider {
     fn fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), VaultError>;
 }
 
-/// A deterministic mock entropy source for testing.
+/// A deterministic counter masquerading as entropy, for tests only.
+///
+/// **This is not a random number generator and must never reach
+/// production.** It fills a buffer with `seed, seed+1, seed+2, …`, and
+/// because `counter` is a `u8` the whole thing has 256 distinct states —
+/// so a key produced from it has a 256-key keyspace, brute-forceable
+/// instantly.
+///
+/// It is therefore gated: available under `cfg(test)`, or to an external
+/// crate that opts in with the `test-utils` Cargo feature. With the
+/// feature off it does not exist, which means [`SymmetricKey::generate`]
+/// has no provider a caller can pass it until a real entropy source is
+/// written. That is deliberate — an API that cannot be called is better
+/// than one that can only be called wrongly.
+#[cfg(any(test, feature = "test-utils"))]
 pub struct MockEntropySource {
     counter: u8,
 }
 
+#[cfg(any(test, feature = "test-utils"))]
 impl MockEntropySource {
     pub const fn new(seed: u8) -> Self {
         Self { counter: seed }
     }
 }
 
+#[cfg(any(test, feature = "test-utils"))]
 impl EntropyProvider for MockEntropySource {
     fn fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), VaultError> {
         for b in dest.iter_mut() {
@@ -51,6 +74,11 @@ impl SymmetricKey {
         Self { bytes }
     }
 
+    /// Draw a fresh key from `rng`.
+    ///
+    /// The key is exactly as strong as the provider. There is no
+    /// production [`EntropyProvider`] in this crate yet, so in a normal
+    /// build there is nothing to pass here — see the trait's note.
     pub fn generate<E: EntropyProvider>(rng: &mut E) -> Result<Self, VaultError> {
         let mut bytes = [0u8; KEY_LEN];
         rng.fill_bytes(&mut bytes)?;

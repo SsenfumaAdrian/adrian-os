@@ -31,3 +31,32 @@ jobs:
       run: cargo build -p adrian-kernel --verbose
     - name: Run tests
       run: cargo test --verbose
+
+  # Nothing checked the Dart side until now, so a total compile break in
+  # sdk/dart or canvas could land on main with CI green. `dart analyze`
+  # is the cheapest thing that would catch that: it type-checks without
+  # needing tests to exist. Deliberately NOT running `dart test` yet --
+  # canvas declares a `test` dev-dependency but ships no test/ directory,
+  # so that step would fail for a reason unrelated to code health.
+  # `--fatal-infos` is intentional: these packages are small and new
+  # enough that keeping them lint-clean from the start is cheap.
+  dart:
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [sdk/dart, canvas]
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dart-lang/setup-dart@v1
+      with:
+        sdk: stable
+    - name: Resolve dependencies
+      working-directory: ${{ matrix.package }}
+      run: dart pub get
+    - name: Analyze
+      working-directory: ${{ matrix.package }}
+      run: dart analyze --fatal-infos

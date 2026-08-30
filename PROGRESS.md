@@ -13,7 +13,7 @@ rename.
 |---|---|
 | Boot path | Hosted dev-loop wrapper (`rian/boot-image`) crosses into the real kernel entry point. No bare-metal target build yet — this sandbox has no path to one (see Blockers). |
 | Kernel entry | Real: `BootContext` construction, validation, and the actual `kernel_entry` call, not a simulated stand-in. Exactly one entry point now: a dead `kernel_init()` wrapper in `lib.rs` and the no-context `init::early_kernel_init()` helper it was the only caller of have been removed (zero callers each, found by `tools/graph`). |
-| Memory management | Physical bootstrap allocator (region classification, bump allocation, checked overflow arithmetic) plus x86_64 4-level page table entry encoding and address splitting. No table-walking mapper yet — needs the boot-time memory model settled, which needs real firmware/Halo integration. |
+| Memory management | Physical bootstrap allocator (region classification, bump allocation, checked overflow arithmetic), x86_64 4-level page table entry encoding and address splitting, plus `SoftwarePageMapper`: a real table-walking mapper with `map_page`, `unmap_page` and `translate`, handling 1 GiB/2 MiB leaves and rejecting non-canonical addresses. The boot-time memory model is still **not** settled — the mapper takes a `phys_offset` and makes the caller guarantee a direct map of physical memory, so the open question became an explicit parameter rather than going away. Nothing in the boot path can supply that yet, so the mapper has no production callers, only tests. No TLB invalidation and no reclamation of emptied intermediate tables; both are unnecessary until CR3 points at these tables. |
 | Interrupts/timers | IDT entry encoding, PIC remap + full mask, PIT frequency/divisor math, all real and tested. No real exception handlers installed and `Idt::load()` is never called — `extern "x86-interrupt"` is nightly-only on this toolchain, and hand-written interrupt entry assembly isn't something to write without a way to verify it (no QEMU here). |
 | Scheduler | Real round-robin ready queue, fixed-capacity ring buffer, thoroughly tested including wraparound. |
 | Process/thread | Real creation, destruction, and state tracking, wired to the scheduler — creating a thread actually enqueues it. |
@@ -81,6 +81,15 @@ None of this manages a real running service yet — that needs the
 kernel-side execution gaps closed first (context switching, at
 minimum).
 
+`ServiceSupervisor` now bundles the state machine, restart policy and
+health policy behind one type, with `handle_failure` and
+`evaluate_health`. Two things to be clear about: it is a façade, holding
+no failure history of its own — the caller owns that and passes it in,
+which is what keeps the decision stateless and testable — and the
+"backoff" in the restart policy is a failure *count* inside a sliding
+window, not a delay. Nothing here damps a crash loop in time yet. It has
+no callers outside its own test.
+
 ## vault
 
 Three cryptographic primitives, each via an audited RustCrypto crate
@@ -100,10 +109,30 @@ and checked against the official standard, not just self-consistency:
 Not attempted: **AES-GCM** specifically (the audited crate's only
 stable release needs a Cargo edition this toolchain can't support —
 ChaCha20-Poly1305 was the working alternative, not a downgrade — see
-Dependency Pins below); **key generation** (needs a real entropy
-source, none exists); **key storage** (needs real persistent storage,
+Dependency Pins below); **key storage** (needs real persistent storage,
 none exists); and the actual **attestation/boot-chain usage** these
 primitives would eventually back.
+
+**Key generation exists but must not be used.** `SymmetricKey::generate`
+takes an `EntropyProvider`, and the only implementation of that trait in
+the crate is `MockEntropySource` — a `pub`, non-test-gated counter that
+fills a key with `seed, seed+1, seed+2, …`. Because `counter` is a `u8`,
+the entire keyspace is **256 keys**. It is there so `KeyEnvelope` could
+be tested; it is currently also the only thing a caller *can* pass, so
+the generation API is reachable in production with test-grade entropy and
+nothing stops it. Treat both as test scaffolding until a real entropy
+source exists. Tracked below under open decisions.
+
+`KeyEnvelope` itself is sound where it counts: real ChaCha20-Poly1305,
+the domain tag genuinely passed as AAD (so a wrong tag fails), tag
+comparison constant-time inside the crate, and plaintext released only
+after verification. Two gaps: the `version` field is checked but **not
+authenticated** (it is outside the AAD, so once a v2 exists an attacker
+with write access to stored envelopes could force a v1 downgrade), and
+`seal` takes a caller-supplied nonce with no uniqueness mechanism or
+warning — nonce reuse under one key breaks ChaCha20-Poly1305 completely.
+`SymmetricKey` also does not zeroize on drop, though `zeroize` is
+already a declared dependency.
 
 ### Dependency pins (why, precisely)
 
@@ -219,11 +248,19 @@ this document should assume:
   conservative shape (rights narrowing + trust ordering), explicitly
   not claimed as definitive.
 - **`canvas`'s actual "Liquid Glass" visual language** — aesthetic
-  direction, not yet started.
-- **Real encryption key management** — once a real entropy source and
-  persistent storage exist, how keys actually get generated, rotated,
-  and stored is a design question in its own right.
-| Memory management | Physical bootstrap allocator (region classification, bump allocation, checked overflow arithmetic), x86_64 4-level page table entry encoding, address splitting, plus `SoftwarePageMapper` for 4-level (PML4 -> PDPT -> PD -> PT) page mapping, unmapping, and translation. |
+  direction. A first pass now exists (`LiquidGlassTheme` design tokens
+  with `crystal`/`obsidian` presets, and a `GlassNode` element tree), but
+  it renders nothing: `canvas` is not in any workspace, not referenced by
+  the Dart SDK, and not built or analysed by CI. The direction itself is
+  still the owner's call.
+- **Real encryption key management** — `SymmetricKey::generate` exists,
+  but its only entropy source is `MockEntropySource` (256-key keyspace,
+  publicly reachable, not test-gated). How keys actually get generated,
+  rotated, and stored — and how the mock gets fenced off from production
+  in the meantime — is a design question in its own right.
+- **A Dart CI job** — nothing runs `dart analyze` or `dart test`. The
+  Rust workflow is the only CI, so a total Dart compile break in
+  `sdk/dart` or `canvas` would land green.
 
 ## Orphaned files (Cleaned Up)
 
